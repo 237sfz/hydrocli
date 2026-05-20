@@ -4,13 +4,43 @@ This guide describes a practical long-term workflow for using `hydro-cli` as a r
 
 ## First-Time Setup
 
-Install the CLI in editable mode from this repository:
+For long-term use across new shells, install the command with `pipx`:
+
+```bash
+python3 -m pip install --user pipx
+python3 -m pipx ensurepath
+pipx install -e /home/zfs732/hydrocli
+```
+
+Open a new shell after `pipx ensurepath`, then verify:
+
+```bash
+hydro --help
+```
+
+This gives you a persistent `hydro` command while still using the editable source tree at `/home/zfs732/hydrocli`.
+
+If you only want to run from this repository without a persistent command, use the local virtualenv:
 
 ```bash
 cd /home/zfs732/hydrocli
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -e ".[dev]"
+```
+
+That activation only affects the current shell. In a new shell, either activate again:
+
+```bash
+cd /home/zfs732/hydrocli
+. .venv/bin/activate
+hydro --help
+```
+
+or call the script directly:
+
+```bash
+/home/zfs732/hydrocli/.venv/bin/hydro --help
 ```
 
 Point the CLI at your Hydro site and log in:
@@ -30,6 +60,36 @@ hydro config show
 ```
 
 If you switch to another Hydro site with `hydro config set-url`, the saved current contest is cleared so you do not accidentally submit to a contest from a different site.
+
+## Updating
+
+If you installed with `pipx install -e /home/zfs732/hydrocli`, update the source tree and reinstall dependencies when they change:
+
+```bash
+cd /home/zfs732/hydrocli
+git pull
+pipx reinstall hydro-cli
+hydro --help
+```
+
+If `pipx reinstall hydro-cli` cannot find the original editable source, do a clean reinstall:
+
+```bash
+pipx uninstall hydro-cli
+pipx install -e /home/zfs732/hydrocli
+```
+
+For the local virtualenv workflow:
+
+```bash
+cd /home/zfs732/hydrocli
+git pull
+. .venv/bin/activate
+python -m pip install -e ".[dev]"
+hydro --help
+```
+
+Your Hydro config, login session, and current contest live outside the repository under your user config directory, so normal code updates do not erase them.
 
 ## Daily Problem Workflow
 
