@@ -59,3 +59,32 @@ def test_compiling_record_is_not_done() -> None:
 
     assert detail.status == "Compiling"
     assert not detail.is_done
+
+
+def test_running_record_is_not_done() -> None:
+    html = """
+    <div id="status" data-status="20">
+      <h1 class="section__title"><span>0</span><span>Running</span><span>1%</span></h1>
+    </div>
+    <dl class="large horizontal" id="summary"><dt>Score</dt><dd>0</dd></dl>
+    """
+
+    detail = parse_record_detail(html, "http://localhost:8888", "abc")
+
+    assert detail.status == "Running 1%"
+    assert not detail.is_done
+
+
+def test_time_exceeded_record_is_done() -> None:
+    html = """
+    <div id="status" data-status="3">
+      <h1 class="section__title"><span>80</span><span>Time Exceeded</span></h1>
+    </div>
+    <dl class="large horizontal" id="summary"><dt>Score</dt><dd>80</dd></dl>
+    """
+
+    detail = parse_record_detail(html, "http://localhost:8888", "abc")
+
+    assert detail.status == "Time Exceeded"
+    assert detail.score == "80"
+    assert detail.is_done

@@ -15,6 +15,7 @@ from .utils import absolute_url
 TERMINAL_STATUS_HINTS = {
     "Accepted",
     "Wrong Answer",
+    "Time Exceeded",
     "Time Limit Exceeded",
     "Memory Limit Exceeded",
     "Runtime Error",
@@ -32,7 +33,7 @@ RUNNING_STATUS_HINTS = {
     "Compiling",
     "Judging",
     "Fetching",
-    "Ignored",
+    "Running",
 }
 
 
@@ -66,9 +67,11 @@ class RecordDetail:
     def is_done(self) -> bool:
         if self.status in RUNNING_STATUS_HINTS:
             return False
+        if re.search(r"\b\d+(?:\.\d+)?%\b", self.status):
+            return False
         if self.status in TERMINAL_STATUS_HINTS:
             return True
-        return bool(self.status)
+        return False
 
 
 class RecordService:
