@@ -303,6 +303,24 @@ def contest_problems(
     console.print(_contest_problems_table(problems))
 
 
+@contest_app.command("problem")
+def contest_problem(
+    problem: Annotated[str, typer.Argument(help="Contest alias or problem id")],
+    cid: Annotated[str | None, typer.Argument(help="Contest id. Uses current contest when omitted.")] = None,
+    raw: Annotated[bool, typer.Option("--raw", help="Print raw Markdown.")] = False,
+) -> None:
+    store, client = _load_client()
+    config = store.load()
+    cid = _current_contest_id(config, cid)
+    with client:
+        fetched = ContestService(client).problem(cid, problem)
+    markdown = render_statement(fetched)
+    if raw:
+        console.print(markdown, markup=False)
+    else:
+        console.print(Markdown(markdown))
+
+
 @contest_app.command("submit")
 def contest_submit(
     first: Annotated[str, typer.Argument(help="Problem alias, or contest id in legacy form.")],

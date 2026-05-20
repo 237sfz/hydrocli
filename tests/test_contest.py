@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 
 from hydro_cli.contest import (
+    ContestProblem,
+    ContestService,
     parse_contest_detail,
     parse_contest_list,
     parse_contest_problems,
@@ -10,6 +12,18 @@ from hydro_cli.contest import (
     parse_join_form,
     resolve_contest_problem,
 )
+
+
+class FakeClient:
+    base_url = "http://localhost:8888"
+
+    def __init__(self, pages: dict[str, str]) -> None:
+        self.pages = pages
+        self.paths: list[str] = []
+
+    def get_text(self, path: str, **_kwargs: object) -> str:
+        self.paths.append(path)
+        return self.pages[path]
 
 
 def encode_context(data: dict[str, object]) -> str:
@@ -157,3 +171,57 @@ def test_parse_join_form_detects_attend_code_field() -> None:
     assert form.method == "POST"
     assert form.fields == {"operation": "attend", "code": ""}
     assert form.password_field == "code"
+
+
+def test_resolve_contest_problem_is_case_insensitive_for_alias() -> None:
+    problems = [
+        ContestProblem(
+            alias="A",
+            problem_id="16",
+            title="Matrix",
+            status="",
+            score="",
+            last_submit_at="",
+            url="/p/16?tid=abc123",
+            submit_url="/p/16/submit?tid=abc123",
+        )
+    ]
+
+    assert resolve_contest_problem(problems, "A").problem_id == "16"
+    assert resolve_contest_problem(problems, "a").problem_id == "16"
+    assert resolve_contest_problem(problems, "16").alias == "A"
+
+
+def test_contest_service_fetches_problem_inside_contest_context() -> None:
+    problems_html = """
+    <table><tbody>
+      <tr><td>No Submissions</td><td>-</td><td>
+        <a href="/p/16?tid=abc123"><b>A</b>&nbsp;&nbsp;Matrix</a>
+        <a href="/p/16/submit?tid=abc123">Submit</a>
+      </td></tr>
+    </tbody></table>
+    """
+    problem_html = encode_context(
+        {
+            "pdoc": {
+                "docId": 16,
+                "title": "Matrix",
+                "content": {"en": "Contest statement"},
+                "config": {"timeMin": 1000, "timeMax": 1000, "memoryMin": 256, "memoryMax": 256},
+            }
+        }
+    )
+    client = FakeClient(
+        {
+            "/contest/abc123/problems": problems_html,
+            "/p/16?tid=abc123": problem_html,
+        }
+    )
+
+    problem = ContestService(client).problem("abc123", "A")  # type: ignore[arg-type]
+
+    assert client.paths == ["/contest/abc123/problems", "/p/16?tid=abc123"]
+    assert problem.problem_id == "16"
+    assert problem.title == "Matrix"
+    assert problem.statement == "Contest statement\n"
+    assert problem.url == "http://localhost:8888/p/16?tid=abc123"

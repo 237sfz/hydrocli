@@ -41,9 +41,9 @@ class ProblemService:
     def __init__(self, client: HydroClient) -> None:
         self.client = client
 
-    def fetch(self, pid: str) -> Problem:
-        page_problem = self._fetch_from_page(pid)
-        api_statement = self._fetch_api_statement(pid)
+    def fetch(self, pid: str, *, page_path: str = "", use_api: bool = True) -> Problem:
+        page_problem = self._fetch_from_page(pid, page_path=page_path)
+        api_statement = self._fetch_api_statement(pid) if use_api else ""
         if api_statement.strip():
             statement = api_statement
         else:
@@ -105,9 +105,10 @@ class ProblemService:
         )
         return problem
 
-    def _fetch_from_page(self, pid: str) -> Problem:
+    def _fetch_from_page(self, pid: str, *, page_path: str = "") -> Problem:
         quoted_pid = quote_path_part(pid)
-        html = self.client.get_text(f"/p/{quoted_pid}")
+        path = page_path or f"/p/{quoted_pid}"
+        html = self.client.get_text(path)
         ui = extract_ui_context(html)
         pdoc = ui.get("pdoc") or {}
         if not isinstance(pdoc, dict):
@@ -148,7 +149,7 @@ class ProblemService:
         return Problem(
             problem_id=str(pid),
             title=str(pdoc.get("title") or f"Problem {pid}"),
-            url=absolute_url(self.client.base_url, f"/p/{quoted_pid}"),
+            url=absolute_url(self.client.base_url, path),
             statement=choose_markdown(pdoc.get("content")).strip() + "\n",
             tags=[str(tag) for tag in tags],
             stats=stats,

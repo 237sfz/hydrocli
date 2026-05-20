@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup, Tag
 from .client import HydroClient
 from .errors import HydroCliError
 from .parsing import clean_text, extract_ui_context
+from .problem import Problem, ProblemService
 from .submit import SubmitService
 from .utils import absolute_url, quote_path_part
 
@@ -141,6 +142,15 @@ class ContestService:
                 return detail.problems
             raise
         return parse_contest_problems(html, self.client.base_url, cid)
+
+    def problem(self, cid: str, problem_arg: str) -> Problem:
+        contest_problem = resolve_contest_problem(self.problems(cid), problem_arg)
+        path = f"/p/{quote_path_part(contest_problem.problem_id)}?tid={quote_path_part(cid)}"
+        return ProblemService(self.client).fetch(
+            contest_problem.problem_id,
+            page_path=path,
+            use_api=False,
+        )
 
     def standings(self, cid: str) -> ContestStanding:
         quoted = quote_path_part(cid)

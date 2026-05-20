@@ -90,6 +90,7 @@ After this, most contest commands can omit the contest id:
 ```bash
 hydro contest show
 hydro contest problems
+hydro contest problem A
 hydro contest standings
 ```
 
@@ -120,6 +121,16 @@ hydro contest clear
 ```
 
 ## Contest Submissions
+
+Read a contest problem statement by alias or visible problem id:
+
+```bash
+hydro contest problem A
+hydro contest problem A --raw
+hydro contest problem 16
+```
+
+This command loads the problem inside the contest context, so it works for contest-hidden problems after you have attended the contest.
 
 After setting a current contest, submit by contest alias:
 
@@ -186,6 +197,7 @@ hydro whoami
 hydro contest use <cid>
 hydro contest current
 hydro contest problems
+hydro contest problem A
 ```
 
 During a contest, prefer the short submit form:
