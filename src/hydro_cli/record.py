@@ -22,6 +22,7 @@ TERMINAL_STATUS_HINTS = {
     "Compile Error",
     "System Error",
     "Canceled",
+    "Cancelled",
     "Ignored",
     "Format Error",
     "Hack Successful",
@@ -59,6 +60,7 @@ class RecordDetail:
     status_code: str
     score: str
     info: dict[str, str]
+    cases: list[dict[str, str]]
     compiler_text: str
     code: str
     url: str
@@ -163,6 +165,7 @@ def parse_record_detail(html: str, base_url: str, rid: str) -> RecordDetail:
         status_code=status_code,
         score=score,
         info=info,
+        cases=_parse_cases(soup),
         compiler_text=compiler_text,
         code=code,
         url=absolute_url(base_url, f"/record/{rid}"),
@@ -197,6 +200,33 @@ def _parse_info_dl(soup: BeautifulSoup) -> dict[str, str]:
                 info[pending_key] = clean_text(child.get_text(" ", strip=True))
                 pending_key = ""
     return info
+
+
+def _parse_cases(soup: BeautifulSoup) -> list[dict[str, str]]:
+    cases: list[dict[str, str]] = []
+    for row in soup.select("table.record_detail__table tbody tr"):
+        cells = row.find_all("td")
+        if len(cells) < 4:
+            continue
+        status_cell = cells[1]
+        status_node = status_cell.select_one(".record-status--text:not(.float-right)")
+        score_node = status_cell.select_one(".float-right.record-status--text")
+        message_node = status_cell.select_one(".message")
+        cases.append(
+            {
+                "case": clean_text(cells[0].get_text(" ", strip=True)),
+                "status": clean_text(
+                    status_node.get_text(" ", strip=True)
+                    if status_node
+                    else status_cell.get_text(" ", strip=True)
+                ),
+                "score": clean_text(score_node.get_text(" ", strip=True)) if score_node else "",
+                "time": clean_text(cells[2].get_text(" ", strip=True)),
+                "memory": clean_text(cells[3].get_text(" ", strip=True)),
+                "message": clean_text(message_node.get_text(" ", strip=True)) if message_node else "",
+            }
+        )
+    return cases
 
 
 def _extract_score(text: str) -> str:

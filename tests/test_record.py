@@ -47,6 +47,41 @@ def test_parse_record_detail() -> None:
     assert detail.code == "int main(){}"
 
 
+def test_parse_record_cases() -> None:
+    html = """
+    <div id="status" data-status="1">
+      <h1 class="section__title"><span>100</span><span>Accepted</span></h1>
+    </div>
+    <table class="data-table record_detail__table">
+      <tbody>
+        <tr class="subtask-case">
+          <td class="col--case">#1</td>
+          <td class="col--status">
+            <span class="record-status--text pass">Accepted</span>
+            <span class="float-right record-status--text pass">50</span>
+            <span class="message">ok</span>
+          </td>
+          <td class="col--time">1ms</td>
+          <td class="col--memory">512 KiB</td>
+        </tr>
+      </tbody>
+    </table>
+    """
+
+    detail = parse_record_detail(html, "http://localhost:8888", "abc")
+
+    assert detail.cases == [
+        {
+            "case": "#1",
+            "status": "Accepted",
+            "score": "50",
+            "time": "1ms",
+            "memory": "512 KiB",
+            "message": "ok",
+        }
+    ]
+
+
 def test_compiling_record_is_not_done() -> None:
     html = """
     <div id="status" data-status="2">

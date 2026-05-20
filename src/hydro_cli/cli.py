@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import getpass
+import time
 from pathlib import Path
 from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.console import Group
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -170,7 +172,7 @@ def submit(
         str,
         typer.Option("--lang", "-l", help="Hydro language id. Inferred from extension when omitted."),
     ] = "",
-    watch: Annotated[bool, typer.Option("--watch", "-w", help="Wait for final result.")] = False,
+    watch: Annotated[bool, typer.Option("--watch/--no-watch", help="Wait for final result.")] = True,
 ) -> None:
     if not source.exists():
         raise HydroCliError(f"source file not found: {source}")
@@ -181,6 +183,8 @@ def submit(
         if watch:
             detail = _watch_record(client, rid)
             _print_record_detail(detail)
+        else:
+            console.print(f"Use [bold]hydro record watch {rid}[/bold] to wait for the result.")
 
 
 @problem_app.command("langs")
@@ -246,13 +250,13 @@ def _watch_record(
 ) -> RecordDetail:
     service = RecordService(client)
     with Live(console=console, refresh_per_second=4) as live:
-        deadline = __import__("time").monotonic() + max_wait
+        deadline = time.monotonic() + max_wait
         detail = service.show(rid)
         while True:
-            live.update(_record_panel(detail))
-            if detail.is_done or __import__("time").monotonic() >= deadline:
+            live.update(_record_live_view(detail))
+            if detail.is_done or time.monotonic() >= deadline:
                 return detail
-            __import__("time").sleep(interval)
+            time.sleep(interval)
             detail = service.show(rid)
 
 
@@ -264,17 +268,83 @@ def _record_panel(detail: RecordDetail) -> Panel:
     )
 
 
+def _record_live_view(detail: RecordDetail) -> Group:
+    parts = [_record_panel(detail)]
+    info_table = _record_info_table(detail)
+    if info_table:
+        parts.append(info_table)
+    if detail.cases:
+        parts.append(_record_cases_table(detail, limit=18))
+    if detail.compiler_text and detail.status == "Compile Error":
+        parts.append(Panel(_truncate(detail.compiler_text, 1200), title="Compiler"))
+    return Group(*parts)
+
+
 def _print_record_detail(detail: RecordDetail) -> None:
     console.print(_record_panel(detail))
+    info_table = _record_info_table(detail)
+    if info_table:
+        console.print(info_table)
+    if detail.cases:
+        console.print(_record_cases_table(detail, limit=0))
+    if detail.compiler_text:
+        console.print(Panel(detail.compiler_text, title="Compiler"))
+
+
+def _record_info_table(detail: RecordDetail) -> Table | None:
+    if not detail.info:
+        return None
+    wanted = [
+        "Submit By",
+        "Problem",
+        "Language",
+        "Code Length",
+        "Submit At",
+        "Judged At",
+        "Score",
+        "Total Time",
+        "Peak Time",
+        "Peak Memory",
+    ]
     table = Table(show_header=False)
     table.add_column("Key")
     table.add_column("Value")
+    added = False
+    for key in wanted:
+        value = detail.info.get(key)
+        if value:
+            table.add_row(key, value)
+            added = True
     for key, value in detail.info.items():
-        table.add_row(key, value)
-    if detail.info:
-        console.print(table)
-    if detail.compiler_text:
-        console.print(Panel(detail.compiler_text, title="Compiler"))
+        if key not in wanted:
+            table.add_row(key, value)
+            added = True
+    return table if added else None
+
+
+def _record_cases_table(detail: RecordDetail, limit: int) -> Table:
+    cases = detail.cases
+    if limit > 0 and len(cases) > limit:
+        head = max(1, limit // 2)
+        tail = max(1, limit - head - 1)
+        cases = cases[:head] + [{"case": "...", "status": "...", "score": "", "time": "", "memory": "", "message": ""}] + cases[-tail:]
+    table = Table("Case", "Status", "Score", "Time", "Memory", "Message", title="Details")
+    for item in cases:
+        table.add_row(
+            item.get("case", ""),
+            item.get("status", ""),
+            item.get("score", ""),
+            item.get("time", ""),
+            item.get("memory", ""),
+            _truncate(item.get("message", ""), 80),
+        )
+    return table
+
+
+def _truncate(value: str, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+    return value[: max(0, limit - 3)].rstrip() + "..."
 
 
 def main() -> None:
