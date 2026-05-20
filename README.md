@@ -36,6 +36,7 @@ hydro contest use <cid>
 hydro contest show
 hydro contest problems
 hydro contest problem A
+hydro contest pull A
 hydro contest submit A main.cpp --lang cc.cc20o2 --watch
 ```
 

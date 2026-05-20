@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
+from pathlib import Path
 
 from hydro_cli.contest import (
     ContestProblem,
@@ -24,6 +26,37 @@ class FakeClient:
     def get_text(self, path: str, **_kwargs: object) -> str:
         self.paths.append(path)
         return self.pages[path]
+
+
+class FakeResponse:
+    def __init__(self, data: bytes) -> None:
+        self.data = data
+
+    def iter_bytes(self, chunk_size: int) -> Iterator[bytes]:
+        del chunk_size
+        yield self.data
+
+
+class FakeStream:
+    def __init__(self, response: FakeResponse) -> None:
+        self.response = response
+
+    def __enter__(self) -> FakeResponse:
+        return self.response
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+
+class FakePullClient(FakeClient):
+    def __init__(self, pages: dict[str, str], files: dict[str, bytes]) -> None:
+        super().__init__(pages)
+        self.files = files
+        self.stream_paths: list[str] = []
+
+    def stream(self, path: str) -> FakeStream:
+        self.stream_paths.append(path)
+        return FakeStream(FakeResponse(self.files[path]))
 
 
 def encode_context(data: dict[str, object]) -> str:
@@ -225,3 +258,41 @@ def test_contest_service_fetches_problem_inside_contest_context() -> None:
     assert problem.title == "Matrix"
     assert problem.statement == "Contest statement\n"
     assert problem.url == "http://localhost:8888/p/16?tid=abc123"
+
+
+def test_contest_service_pull_downloads_attachments_with_tid(tmp_path: Path) -> None:
+    problems_html = """
+    <table><tbody>
+      <tr><td>No Submissions</td><td>-</td><td>
+        <a href="/p/16?tid=abc123"><b>A</b>&nbsp;&nbsp;Matrix</a>
+        <a href="/p/16/submit?tid=abc123">Submit</a>
+      </td></tr>
+    </tbody></table>
+    """
+    problem_html = encode_context(
+        {
+            "pdoc": {
+                "docId": 16,
+                "title": "Matrix",
+                "content": {"en": "[data](file://data.zip)"},
+                "additional_file": [{"name": "data.zip", "size": 4}],
+                "config": {"timeMin": 1000, "timeMax": 1000, "memoryMin": 256, "memoryMax": 256},
+            }
+        }
+    )
+    file_path = "/p/16/file/data.zip?type=additional_file&tid=abc123"
+    client = FakePullClient(
+        {
+            "/contest/abc123/problems": problems_html,
+            "/p/16?tid=abc123": problem_html,
+        },
+        {file_path: b"data"},
+    )
+
+    problem = ContestService(client).pull("abc123", "A", tmp_path)  # type: ignore[arg-type]
+
+    assert client.stream_paths == [file_path]
+    assert problem.problem_id == "A"
+    target = tmp_path / "abc123" / "A"
+    assert (target / "files" / "data.zip").read_bytes() == b"data"
+    assert "(files/data.zip)" in (target / "statement.md").read_text(encoding="utf-8")

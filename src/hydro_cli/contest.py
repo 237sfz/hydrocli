@@ -149,8 +149,26 @@ class ContestService:
         return ProblemService(self.client).fetch(
             contest_problem.problem_id,
             page_path=path,
+            file_query=f"type=additional_file&tid={quote_path_part(cid)}",
             use_api=False,
         )
+
+    def pull(self, cid: str, problem_arg: str, output_dir: Path) -> Problem:
+        contest_problem = resolve_contest_problem(self.problems(cid), problem_arg)
+        path = f"/p/{quote_path_part(contest_problem.problem_id)}?tid={quote_path_part(cid)}"
+        target_dir = output_dir / quote_path_part(cid)
+        directory_name = contest_problem.alias or contest_problem.problem_id
+        problem = ProblemService(self.client).pull(
+            contest_problem.problem_id,
+            target_dir,
+            directory_name=directory_name,
+            page_path=path,
+            file_query=f"type=additional_file&tid={quote_path_part(cid)}",
+            use_api=False,
+        )
+        problem.problem_id = directory_name
+        problem.url = absolute_url(self.client.base_url, path)
+        return problem
 
     def standings(self, cid: str) -> ContestStanding:
         quoted = quote_path_part(cid)

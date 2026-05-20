@@ -91,6 +91,7 @@ After this, most contest commands can omit the contest id:
 hydro contest show
 hydro contest problems
 hydro contest problem A
+hydro contest pull A
 hydro contest standings
 ```
 
@@ -131,6 +132,24 @@ hydro contest problem 16
 ```
 
 This command loads the problem inside the contest context, so it works for contest-hidden problems after you have attended the contest.
+
+Pull a contest problem, including statement attachments:
+
+```bash
+hydro contest pull A
+hydro contest pull A --output-dir contests
+```
+
+Contest pulls are written under `contests/<cid>/<alias-or-pid>/`:
+
+```text
+contests/
+  <cid>/
+    A/
+      statement.md
+      problem.json
+      files/
+```
 
 After setting a current contest, submit by contest alias:
 
@@ -198,6 +217,7 @@ hydro contest use <cid>
 hydro contest current
 hydro contest problems
 hydro contest problem A
+hydro contest pull A
 ```
 
 During a contest, prefer the short submit form:

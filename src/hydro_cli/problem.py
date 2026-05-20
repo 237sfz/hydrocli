@@ -41,8 +41,15 @@ class ProblemService:
     def __init__(self, client: HydroClient) -> None:
         self.client = client
 
-    def fetch(self, pid: str, *, page_path: str = "", use_api: bool = True) -> Problem:
-        page_problem = self._fetch_from_page(pid, page_path=page_path)
+    def fetch(
+        self,
+        pid: str,
+        *,
+        page_path: str = "",
+        file_query: str = "type=additional_file",
+        use_api: bool = True,
+    ) -> Problem:
+        page_problem = self._fetch_from_page(pid, page_path=page_path, file_query=file_query)
         api_statement = self._fetch_api_statement(pid) if use_api else ""
         if api_statement.strip():
             statement = api_statement
@@ -76,9 +83,18 @@ class ProblemService:
             problems.append({"problem_id": pid, "title": title, "url": absolute_url(self.client.base_url, href)})
         return problems
 
-    def pull(self, pid: str, output_dir: Path) -> Problem:
-        problem = self.fetch(pid)
-        problem_dir = output_dir / str(pid)
+    def pull(
+        self,
+        pid: str,
+        output_dir: Path,
+        *,
+        directory_name: str = "",
+        page_path: str = "",
+        file_query: str = "type=additional_file",
+        use_api: bool = True,
+    ) -> Problem:
+        problem = self.fetch(pid, page_path=page_path, file_query=file_query, use_api=use_api)
+        problem_dir = output_dir / (directory_name or str(pid))
         files_dir = problem_dir / "files"
         problem_dir.mkdir(parents=True, exist_ok=True)
         files_dir.mkdir(parents=True, exist_ok=True)
@@ -88,7 +104,7 @@ class ProblemService:
             target = files_dir / attachment.name
             target.parent.mkdir(parents=True, exist_ok=True)
             with self.client.stream(
-                f"/p/{quote_path_part(pid)}/file/{quote_path_part(attachment.name)}?type=additional_file"
+                _problem_file_path(pid, attachment.name, file_query=file_query)
             ) as response:
                 with target.open("wb") as fh:
                     for chunk in response.iter_bytes(chunk_size=1 << 16):
@@ -105,7 +121,13 @@ class ProblemService:
         )
         return problem
 
-    def _fetch_from_page(self, pid: str, *, page_path: str = "") -> Problem:
+    def _fetch_from_page(
+        self,
+        pid: str,
+        *,
+        page_path: str = "",
+        file_query: str = "type=additional_file",
+    ) -> Problem:
         quoted_pid = quote_path_part(pid)
         path = page_path or f"/p/{quoted_pid}"
         html = self.client.get_text(path)
@@ -134,7 +156,7 @@ class ProblemService:
                     etag=str(item.get("etag") or ""),
                     download_url=absolute_url(
                         self.client.base_url,
-                        f"/p/{quoted_pid}/file/{quote_path_part(name)}?type=additional_file",
+                        _problem_file_path(pid, name, file_query=file_query),
                     ),
                 )
             )
@@ -186,6 +208,11 @@ class ProblemService:
 def problem_to_dict(problem: Problem) -> dict[str, Any]:
     data = asdict(problem)
     return data
+
+
+def _problem_file_path(pid: object, filename: object, *, file_query: str = "type=additional_file") -> str:
+    path = f"/p/{quote_path_part(pid)}/file/{quote_path_part(filename)}"
+    return f"{path}?{file_query}" if file_query else path
 
 
 def render_statement(problem: Problem) -> str:
