@@ -249,11 +249,15 @@ def _watch_record(
     max_wait: float = 120.0,
 ) -> RecordDetail:
     service = RecordService(client)
-    with Live(console=console, refresh_per_second=4) as live:
+    with Live(console=console, auto_refresh=False, refresh_per_second=1, transient=True) as live:
         deadline = time.monotonic() + max_wait
         detail = service.show(rid)
+        last_signature = ""
         while True:
-            live.update(_record_live_view(detail))
+            signature = _record_live_signature(detail)
+            if signature != last_signature:
+                live.update(_record_live_view(detail), refresh=True)
+                last_signature = signature
             if detail.is_done or time.monotonic() >= deadline:
                 return detail
             time.sleep(interval)
@@ -278,6 +282,18 @@ def _record_live_view(detail: RecordDetail) -> Group:
     if detail.compiler_text and detail.status == "Compile Error":
         parts.append(Panel(_truncate(detail.compiler_text, 1200), title="Compiler"))
     return Group(*parts)
+
+
+def _record_live_signature(detail: RecordDetail) -> str:
+    return repr(
+        (
+            detail.status,
+            detail.score,
+            tuple(detail.info.items()),
+            tuple(tuple(item.items()) for item in detail.cases),
+            detail.compiler_text if detail.status == "Compile Error" else "",
+        )
+    )
 
 
 def _print_record_detail(detail: RecordDetail) -> None:
