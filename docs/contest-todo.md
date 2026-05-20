@@ -354,7 +354,7 @@ Do not use a real high-stakes contest for destructive testing unless explicitly 
 
 ## Open Questions
 
-- Should `contest submit` require explicit `<cid>`, or should `hydro contest use <cid>` set a current contest in `.hydrocli.toml`?
+- Decided: `hydro contest use <cid>` sets a current contest in the local config. Commands still accept explicit `<cid>` for scripts, and `hydro contest submit <problem> <file>` uses the saved contest.
 - Should standings support export formats such as `--json` or `--csv`?
 - Should contest problem aliases be cached locally after `hydro contest problems <cid>`?
 - Should websocket support be added for record watch before contest submit, or is polling enough for now?

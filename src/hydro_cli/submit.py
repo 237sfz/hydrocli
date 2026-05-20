@@ -37,6 +37,9 @@ class SubmitService:
         return _languages_from_select(html)
 
     def submit(self, pid: str, source_path: Path, lang: str = "") -> str:
+        return self.submit_to_path(f"/p/{quote_path_part(pid)}/submit", source_path, lang)
+
+    def submit_to_path(self, submit_path: str, source_path: Path, lang: str = "") -> str:
         source = source_path.read_text(encoding="utf-8")
         chosen_lang = lang or infer_language(source_path)
         if not chosen_lang:
@@ -44,7 +47,7 @@ class SubmitService:
 
         response = self.client.raw_request(
             "POST",
-            f"/p/{quote_path_part(pid)}/submit",
+            submit_path,
             files={
                 "lang": (None, chosen_lang),
                 "code": (None, source),

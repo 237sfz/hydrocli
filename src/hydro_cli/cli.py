@@ -14,7 +14,8 @@ from rich.panel import Panel
 from rich.table import Table
 
 from .client import HydroClient, dump_cookies
-from .config import ConfigStore
+from .config import Config, ConfigStore
+from .contest import ContestDetail, ContestProblem, ContestService, ContestStanding
 from .errors import HydroCliError
 from .problem import ProblemService, render_statement
 from .record import RecordDetail, RecordService
@@ -26,9 +27,11 @@ app = typer.Typer(no_args_is_help=True, help="Terminal client for Hydro OJ.")
 config_app = typer.Typer(help="Manage local hydro-cli configuration.")
 problem_app = typer.Typer(help="Read and pull Hydro problems.")
 record_app = typer.Typer(help="Inspect Hydro submission records.")
+contest_app = typer.Typer(help="Work with Hydro contests.")
 app.add_typer(config_app, name="config")
 app.add_typer(problem_app, name="problem")
 app.add_typer(record_app, name="record")
+app.add_typer(contest_app, name="contest")
 
 console = Console()
 
@@ -47,7 +50,10 @@ def _load_client() -> tuple[ConfigStore, HydroClient]:
 def config_set_url(base_url: Annotated[str, typer.Argument(help="Hydro base URL")]) -> None:
     store = _store()
     config = store.load()
-    config.base_url = normalize_base_url(base_url)
+    new_base_url = normalize_base_url(base_url)
+    if new_base_url != config.base_url:
+        config.current_contest_id = ""
+    config.base_url = new_base_url
     store.save(config)
     console.print(f"Base URL set to [bold]{config.base_url}[/bold]")
 
@@ -60,6 +66,7 @@ def config_show() -> None:
     table.add_column("Value")
     table.add_row("base_url", config.base_url)
     table.add_row("default_language", config.default_language or "-")
+    table.add_row("current_contest_id", config.current_contest_id or "-")
     table.add_row("username", config.username or "-")
     table.add_row("uid", config.uid or "-")
     table.add_row("session", "present" if config.is_logged_in else "-")
@@ -196,6 +203,155 @@ def problem_langs(pid: Annotated[str, typer.Argument(help="Problem id")]) -> Non
         console.print(item)
 
 
+@contest_app.command("list")
+def contest_list(
+    page: Annotated[int, typer.Option("--page", "-p", min=1, help="Contest list page.")] = 1,
+) -> None:
+    _store, client = _load_client()
+    with client:
+        contests = ContestService(client).list(page=page)
+    table = Table("ID", "Title", "Rule", "Status", "Start", "Duration", "Rated", "Partic.", "URL")
+    for item in contests:
+        table.add_row(
+            item.contest_id,
+            item.title,
+            item.rule or "-",
+            item.status or "-",
+            item.start or "-",
+            item.duration or "-",
+            "yes" if item.rated else "-",
+            item.participants or "-",
+            item.url,
+        )
+    console.print(table)
+
+
+@contest_app.command("use")
+def contest_use(cid: Annotated[str, typer.Argument(help="Contest id")]) -> None:
+    store, client = _load_client()
+    config = store.load()
+    with client:
+        detail = ContestService(client).show(cid)
+    _save_current_contest(store, config, detail.contest_id)
+    console.print(f"Current contest set to [bold]{detail.contest_id}[/bold] {detail.title}")
+
+
+@contest_app.command("current")
+def contest_current() -> None:
+    store, client = _load_client()
+    config = store.load()
+    cid = _current_contest_id(config, None)
+    with client:
+        detail = ContestService(client).show(cid)
+    _print_contest_detail(detail)
+
+
+@contest_app.command("clear")
+def contest_clear() -> None:
+    store = _store()
+    config = store.load()
+    old = config.current_contest_id
+    config.current_contest_id = ""
+    store.save(config)
+    if old:
+        console.print(f"Cleared current contest [bold]{old}[/bold]")
+    else:
+        console.print("No current contest was set")
+
+
+@contest_app.command("show")
+def contest_show(
+    cid: Annotated[str | None, typer.Argument(help="Contest id. Uses current contest when omitted.")] = None,
+) -> None:
+    store, client = _load_client()
+    config = store.load()
+    cid = _current_contest_id(config, cid)
+    with client:
+        detail = ContestService(client).show(cid)
+    _print_contest_detail(detail)
+
+
+@contest_app.command("join")
+def contest_join(
+    cid: Annotated[str | None, typer.Argument(help="Contest id. Uses current contest when omitted.")] = None,
+    password: Annotated[
+        str,
+        typer.Option("--password", "-p", help="Contest invitation code/password."),
+    ] = "",
+) -> None:
+    store, client = _load_client()
+    config = store.load()
+    cid = _current_contest_id(config, cid)
+    with client:
+        detail = ContestService(client).join(cid, password=password)
+        config.cookies = dump_cookies(client.client)
+        config.current_contest_id = detail.contest_id
+        store.save(config)
+    console.print(f"Joined [bold]{detail.title}[/bold] ({detail.contest_id})")
+    _print_contest_detail(detail)
+
+
+@contest_app.command("problems")
+def contest_problems(
+    cid: Annotated[str | None, typer.Argument(help="Contest id. Uses current contest when omitted.")] = None,
+) -> None:
+    store, client = _load_client()
+    config = store.load()
+    cid = _current_contest_id(config, cid)
+    with client:
+        problems = ContestService(client).problems(cid)
+    console.print(_contest_problems_table(problems))
+
+
+@contest_app.command("submit")
+def contest_submit(
+    first: Annotated[str, typer.Argument(help="Problem alias, or contest id in legacy form.")],
+    second: Annotated[str, typer.Argument(help="Source file, or problem alias in legacy form.")],
+    third: Annotated[
+        Path | None,
+        typer.Argument(help="Source file in legacy form: <cid> <problem> <file>."),
+    ] = None,
+    lang: Annotated[
+        str,
+        typer.Option("--lang", "-l", help="Hydro language id. Inferred from extension when omitted."),
+    ] = "",
+    watch: Annotated[bool, typer.Option("--watch/--no-watch", help="Wait for final result.")] = True,
+) -> None:
+    store, client = _load_client()
+    config = store.load()
+    cid, problem, source = _resolve_contest_submit_args(config, first, second, third)
+    if not source.exists():
+        raise HydroCliError(f"source file not found: {source}")
+    with client:
+        submission = ContestService(client).submit(cid, problem, source, lang)
+        target = submission.target
+        label = target.problem.alias or target.problem.problem_id
+        console.print(
+            f"Submitted [bold]{cid}[/bold] [bold]{label}[/bold] "
+            f"({target.problem.problem_id}) -> [bold]{submission.record_id}[/bold]"
+        )
+        if watch:
+            detail = _watch_record(client, submission.record_id)
+            _print_record_detail(detail)
+        else:
+            console.print(
+                f"Use [bold]hydro record watch {submission.record_id}[/bold] "
+                "to wait for the result."
+            )
+
+
+@contest_app.command("standings")
+def contest_standings(
+    cid: Annotated[str | None, typer.Argument(help="Contest id. Uses current contest when omitted.")] = None,
+) -> None:
+    store, client = _load_client()
+    config = store.load()
+    cid = _current_contest_id(config, cid)
+    with client:
+        standings = ContestService(client).standings(cid)
+    _print_contest_standings(standings)
+
+
 @record_app.command("list")
 def record_list(
     page: Annotated[int, typer.Option("--page", "-p", min=1, help="Record list page.")] = 1,
@@ -294,6 +450,72 @@ def _record_live_signature(detail: RecordDetail) -> str:
             detail.compiler_text if detail.status == "Compile Error" else "",
         )
     )
+
+
+def _current_contest_id(config: Config, explicit_cid: str | None) -> str:
+    if explicit_cid:
+        return explicit_cid
+    if config.current_contest_id:
+        return config.current_contest_id
+    raise HydroCliError("contest id is required; run hydro contest use <cid> first")
+
+
+def _save_current_contest(store: ConfigStore, config: Config, cid: str) -> None:
+    config.current_contest_id = cid
+    store.save(config)
+
+
+def _resolve_contest_submit_args(
+    config: Config,
+    first: str,
+    second: str,
+    third: Path | None,
+) -> tuple[str, str, Path]:
+    if third is None:
+        return _current_contest_id(config, None), first, Path(second)
+    return first, second, third
+
+
+def _print_contest_detail(detail: ContestDetail) -> None:
+    table = Table(show_header=False, title="Contest")
+    table.add_column("Key")
+    table.add_column("Value")
+    table.add_row("ID", detail.contest_id)
+    table.add_row("Title", detail.title)
+    table.add_row("Rule", detail.rule or "-")
+    table.add_row("Status", detail.status or "-")
+    table.add_row("Attended", "yes" if detail.attended else "no")
+    table.add_row("Problems", str(len(detail.problems)) if detail.problems else detail.info.get("Problem", "-"))
+    table.add_row("Standings", detail.standings_url)
+    for key, value in detail.info.items():
+        if key in {"Rule", "Status", "Problem"}:
+            continue
+        table.add_row(key, value)
+    console.print(table)
+
+
+def _contest_problems_table(problems: list[ContestProblem]) -> Table:
+    table = Table("Alias", "PID", "Title", "Status", "Score", "Last Submit", "URL")
+    for item in problems:
+        table.add_row(
+            item.alias or "-",
+            item.problem_id,
+            item.title,
+            item.status or "-",
+            item.score or "-",
+            item.last_submit_at or "-",
+            item.url,
+        )
+    return table
+
+
+def _print_contest_standings(standing: ContestStanding) -> None:
+    max_cols = max([len(standing.headers), *(len(row) for row in standing.rows)])
+    headers = standing.headers + [f"C{i + 1}" for i in range(len(standing.headers), max_cols)]
+    table = Table(*headers, title="Standings")
+    for row in standing.rows:
+        table.add_row(*(row + [""] * (max_cols - len(row))))
+    console.print(table)
 
 
 def _print_record_detail(detail: RecordDetail) -> None:
@@ -452,7 +674,7 @@ def main() -> None:
         app()
     except HydroCliError as exc:
         console.print(f"[red]error:[/red] {exc}")
-        raise typer.Exit(1) from exc
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

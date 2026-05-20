@@ -36,6 +36,7 @@ class CookieRecord:
 class Config:
     base_url: str = "http://localhost:8888"
     default_language: str = ""
+    current_contest_id: str = ""
     username: str = ""
     uid: str = ""
     cookies: list[CookieRecord] = field(default_factory=list)
@@ -50,6 +51,7 @@ class Config:
         return cls(
             base_url=normalize_base_url(str(data.get("base_url") or "http://localhost:8888")),
             default_language=str(data.get("default_language") or ""),
+            current_contest_id=str(data.get("current_contest_id") or ""),
             username=str(data.get("username") or ""),
             uid=str(data.get("uid") or ""),
             cookies=cookies,
