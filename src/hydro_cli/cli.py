@@ -274,7 +274,7 @@ def _record_live_view(detail: RecordDetail) -> Group:
     if info_table:
         parts.append(info_table)
     if detail.cases:
-        parts.append(_record_cases_table(detail, limit=18))
+        parts.append(_record_cases_table(detail, limit=18, final=False))
     if detail.compiler_text and detail.status == "Compile Error":
         parts.append(Panel(_truncate(detail.compiler_text, 1200), title="Compiler"))
     return Group(*parts)
@@ -286,7 +286,7 @@ def _print_record_detail(detail: RecordDetail) -> None:
     if info_table:
         console.print(info_table)
     if detail.cases:
-        console.print(_record_cases_table(detail, limit=0))
+        console.print(_record_cases_table(detail, limit=0, final=True))
     if detail.compiler_text:
         console.print(Panel(detail.compiler_text, title="Compiler"))
 
@@ -322,15 +322,20 @@ def _record_info_table(detail: RecordDetail) -> Table | None:
     return table if added else None
 
 
-def _record_cases_table(detail: RecordDetail, limit: int) -> Table:
-    cases = detail.cases
-    if limit > 0 and len(cases) > limit:
+def _record_cases_table(detail: RecordDetail, limit: int, final: bool) -> Table:
+    rows = _build_case_rows(detail.cases, final=final)
+    if limit > 0 and len(rows) > limit:
         head = max(1, limit // 2)
         tail = max(1, limit - head - 1)
-        cases = cases[:head] + [{"case": "...", "status": "...", "score": "", "time": "", "memory": "", "message": ""}] + cases[-tail:]
-    table = Table("Case", "Status", "Score", "Time", "Memory", "Message", title="Details")
-    for item in cases:
+        rows = (
+            rows[:head]
+            + [{"subtask": "...", "case": "...", "status": "...", "score": "", "time": "", "memory": "", "message": ""}]
+            + rows[-tail:]
+        )
+    table = Table("Subtask", "ID", "Status", "Score", "Time", "Memory", "Message", title="Details")
+    for item in rows:
         table.add_row(
+            item.get("subtask", ""),
             item.get("case", ""),
             item.get("status", ""),
             item.get("score", ""),
@@ -339,6 +344,85 @@ def _record_cases_table(detail: RecordDetail, limit: int) -> Table:
             _truncate(item.get("message", ""), 80),
         )
     return table
+
+
+def _build_case_rows(cases: list[dict[str, str]], final: bool) -> list[dict[str, str]]:
+    groups: list[dict[str, object]] = []
+    current: dict[str, object] | None = None
+    for item in cases:
+        case_id = item.get("case", "")
+        if _is_subtask_case(case_id):
+            current = {"summary": item, "children": []}
+            groups.append(current)
+            continue
+        parent = _parent_subtask(case_id)
+        if current is None or _case_key(current["summary"]) != parent:
+            summary = {
+                "case": parent or case_id,
+                "status": "",
+                "score": "",
+                "time": "",
+                "memory": "",
+                "message": "",
+            }
+            current = {"summary": summary, "children": []}
+            groups.append(current)
+        children = current["children"]
+        assert isinstance(children, list)
+        children.append(item)
+
+    rows: list[dict[str, str]] = []
+    for group in groups:
+        summary = group["summary"]
+        children = group["children"]
+        assert isinstance(summary, dict)
+        assert isinstance(children, list)
+        rows.append(_format_case_row(summary, subtask=_case_key(summary), is_child=False))
+        if final and _case_passed(summary):
+            continue
+        for child in children:
+            if final and _case_cancelled(child):
+                continue
+            rows.append(_format_case_row(child, subtask="", is_child=True))
+    return rows
+
+
+def _format_case_row(item: dict[str, str], subtask: str, is_child: bool) -> dict[str, str]:
+    case_id = item.get("case", "")
+    if is_child:
+        case_id = f"  {case_id}"
+    return {
+        "subtask": subtask,
+        "case": case_id,
+        "status": item.get("status", ""),
+        "score": item.get("score", ""),
+        "time": item.get("time", ""),
+        "memory": item.get("memory", ""),
+        "message": item.get("message", ""),
+    }
+
+
+def _is_subtask_case(case_id: str) -> bool:
+    return bool(case_id.startswith("#") and "-" not in case_id)
+
+
+def _parent_subtask(case_id: str) -> str:
+    return case_id.split("-", 1)[0] if case_id.startswith("#") else ""
+
+
+def _case_key(item: object) -> str:
+    if not isinstance(item, dict):
+        return ""
+    case_id = str(item.get("case") or "")
+    return _parent_subtask(case_id) or case_id
+
+
+def _case_passed(item: dict[str, str]) -> bool:
+    return item.get("status") == "Accepted"
+
+
+def _case_cancelled(item: dict[str, str]) -> bool:
+    return item.get("status") in {"Canceled", "Cancelled"}
 
 
 def _truncate(value: str, limit: int) -> str:
