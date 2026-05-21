@@ -36,14 +36,14 @@ Build the wheel and source distribution:
 Install the wheel with `pipx`:
 
 ```bash
-pipx install dist/hydro_cli-0.1.0-py3-none-any.whl
+pipx install dist/hydro_cli-0.2.0-py3-none-any.whl
 hydro --help
 ```
 
 Or with `uv`:
 
 ```bash
-uv tool install dist/hydro_cli-0.1.0-py3-none-any.whl
+uv tool install dist/hydro_cli-0.2.0-py3-none-any.whl
 hydro --help
 ```
 
