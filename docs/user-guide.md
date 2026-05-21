@@ -198,9 +198,11 @@ Pull a contest problem, including statement attachments:
 ```bash
 hydro contest pull A
 hydro contest pull A --output-dir contests
+hydro contest pull-all
 ```
 
-Contest pulls are written under `contests/<cid>/<alias-or-pid>/`:
+Contest pulls are written under `contests/<cid>/<alias-or-pid>/`. `pull-all` uses
+the same layout and pulls every visible problem in the contest:
 
 ```text
 contests/

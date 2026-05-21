@@ -32,6 +32,7 @@ class Problem:
     tags: list[str]
     stats: dict[str, Any]
     reference: str | None
+    subType: str
     config: dict[str, Any]
     limits: dict[str, Any]
     attachments: list[Attachment]
@@ -176,6 +177,7 @@ class ProblemService:
             tags=[str(tag) for tag in tags],
             stats=stats,
             reference=pdoc.get("reference") if isinstance(pdoc.get("reference"), str) else None,
+            subType=_problem_subtype(pdoc, config),
             config=config,
             limits={
                 "time_ms": {
@@ -210,6 +212,13 @@ def problem_to_dict(problem: Problem) -> dict[str, Any]:
     return data
 
 
+def _problem_subtype(pdoc: dict[str, Any], config: dict[str, Any]) -> str:
+    subtype = pdoc.get("subType")
+    if subtype in (None, ""):
+        subtype = config.get("subType")
+    return str(subtype) if subtype not in (None, "") else ""
+
+
 def _problem_file_path(pid: object, filename: object, *, file_query: str = "type=additional_file") -> str:
     path = f"/p/{quote_path_part(pid)}/file/{quote_path_part(filename)}"
     return f"{path}?{file_query}" if file_query else path
@@ -225,7 +234,8 @@ def render_statement(problem: Problem) -> str:
         f"- Source: {problem.url}",
         f"- Time limit: {time_limit}",
         f"- Memory limit: {memory_limit}",
-        f"- Tags: {tags}",
-        "",
     ]
+    if problem.subType:
+        header.append(f"- File IO: {problem.subType}")
+    header.extend([f"- Tags: {tags}", ""])
     return "\n".join(header) + problem.statement.lstrip("\n")

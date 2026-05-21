@@ -155,6 +155,20 @@ class ContestService:
 
     def pull(self, cid: str, problem_arg: str, output_dir: Path) -> Problem:
         contest_problem = resolve_contest_problem(self.problems(cid), problem_arg)
+        return self._pull_contest_problem(cid, contest_problem, output_dir)
+
+    def pull_all(self, cid: str, output_dir: Path) -> list[Problem]:
+        return [
+            self._pull_contest_problem(cid, contest_problem, output_dir)
+            for contest_problem in self.problems(cid)
+        ]
+
+    def _pull_contest_problem(
+        self,
+        cid: str,
+        contest_problem: ContestProblem,
+        output_dir: Path,
+    ) -> Problem:
         path = f"/p/{quote_path_part(contest_problem.problem_id)}?tid={quote_path_part(cid)}"
         target_dir = output_dir / quote_path_part(cid)
         directory_name = contest_problem.alias or contest_problem.problem_id

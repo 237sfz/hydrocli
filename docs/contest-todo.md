@@ -16,6 +16,7 @@ hydro contest join [cid] [--password ...]
 hydro contest problems [cid]
 hydro contest problem <alias-or-pid> [cid] [--raw]
 hydro contest pull <alias-or-pid> [cid] [--output-dir contests]
+hydro contest pull-all [cid] [--output-dir contests]
 hydro contest submit <alias-or-pid> <file> [--lang ...] [--watch/--no-watch]
 hydro contest submit <cid> <alias-or-pid> <file> [--lang ...] [--watch/--no-watch]
 hydro contest standings [cid]
@@ -24,12 +25,13 @@ hydro contest standings [cid]
 Implemented behavior to preserve:
 
 - `hydro contest use <cid>` saves the current contest in local config as `current_contest_id`.
-- `show`, `join`, `problems`, `problem`, `pull`, `submit`, and `standings` use the saved contest when `cid` is omitted.
+- `show`, `join`, `problems`, `problem`, `pull`, `pull-all`, `submit`, and `standings` use the saved contest when `cid` is omitted.
 - `hydro contest join <cid>` saves the joined contest as current after success.
 - `hydro config set-url` clears the saved current contest when the base URL changes.
 - Contest aliases such as `A`, `B`, `C` resolve through `/contest/<cid>/problems`.
 - Contest problem viewing and pulling use the contest context path `/p/<pid>?tid=<cid>`.
 - Contest attachment downloads use `/p/<pid>/file/<name>?type=additional_file&tid=<cid>`.
+- Contest `pull-all` pulls every visible contest problem under `contests/<cid>/`.
 - Contest submission uses the parsed or inferred path `/p/<pid>/submit?tid=<cid>`.
 - Normal `hydro submit`, `hydro problem show`, and `hydro problem pull` behavior is unchanged.
 
@@ -84,6 +86,7 @@ hydro contest current
 hydro contest problems
 hydro contest problem A --raw
 hydro contest pull A --output-dir "$(mktemp -d)"
+hydro contest pull-all --output-dir "$(mktemp -d)"
 hydro contest submit A /tmp/solution.cpp --lang cc.cc20o2 --no-watch
 hydro contest submit <cid> A /tmp/solution.cpp --lang cc.cc20o2 --no-watch
 hydro contest clear
@@ -101,13 +104,11 @@ High priority:
 
 - Add `hydro contest record list/show/watch` shortcuts, or add a `--contest [cid]` option to existing `record` commands so users can inspect contest submissions without manually building `/record?tid=...` flows.
 - Add contest-aware `langs` command, for example `hydro contest langs A`, using `/p/<pid>/submit?tid=<cid>`.
-- Add tests for the CLI command surface with `CliRunner`, especially optional `cid` behavior for `contest problem`, `contest pull`, and `contest submit`.
 - Improve `standings` parsing against real visible scoreboard HTML from an ended or non-strict contest.
 
 Medium priority:
 
 - Add structured output options for standings and problems, probably `--json` first. CSV can come later if there is a concrete workflow.
-- Add `hydro contest pull-all [cid]` to pull every visible contest problem under `contests/<cid>/`.
 - Cache contest problem alias mappings only if repeated network calls become a real usability or performance issue. Current behavior deliberately fetches live data.
 - Improve contest join feedback by parsing Hydro error text for wrong invitation code, contest ended, or not started.
 
@@ -123,4 +124,7 @@ Low priority:
 - Added persistent current contest support.
 - Added contest problem statement viewing.
 - Added contest problem pulling with contest-context attachment downloads.
+- Added contest `pull-all` for pulling every visible contest problem.
+- Added CliRunner coverage for optional current-contest behavior on contest commands.
+- Added pulled statement `File IO` metadata from Hydro `subType`.
 - Added user guide at `docs/user-guide.md`, including persistent `pipx` installation and update workflow.

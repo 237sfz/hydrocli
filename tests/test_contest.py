@@ -276,7 +276,13 @@ def test_contest_service_pull_downloads_attachments_with_tid(tmp_path: Path) -> 
                 "title": "Matrix",
                 "content": {"en": "[data](file://data.zip)"},
                 "additional_file": [{"name": "data.zip", "size": 4}],
-                "config": {"timeMin": 1000, "timeMax": 1000, "memoryMin": 256, "memoryMax": 256},
+                "config": {
+                    "timeMin": 1000,
+                    "timeMax": 1000,
+                    "memoryMin": 256,
+                    "memoryMax": 256,
+                    "subType": "matrix",
+                },
             }
         }
     )
@@ -293,6 +299,65 @@ def test_contest_service_pull_downloads_attachments_with_tid(tmp_path: Path) -> 
 
     assert client.stream_paths == [file_path]
     assert problem.problem_id == "A"
+    assert problem.subType == "matrix"
     target = tmp_path / "abc123" / "A"
     assert (target / "files" / "data.zip").read_bytes() == b"data"
-    assert "(files/data.zip)" in (target / "statement.md").read_text(encoding="utf-8")
+    statement = (target / "statement.md").read_text(encoding="utf-8")
+    metadata = json.loads((target / "problem.json").read_text(encoding="utf-8"))
+    assert "(files/data.zip)" in statement
+    assert "- File IO: matrix" in statement
+    assert metadata["subType"] == "matrix"
+
+
+def test_contest_service_pull_all_downloads_every_problem(tmp_path: Path) -> None:
+    problems_html = """
+    <table><tbody>
+      <tr><td>No Submissions</td><td>-</td><td>
+        <a href="/p/16?tid=abc123"><b>A</b>&nbsp;&nbsp;Matrix</a>
+        <a href="/p/16/submit?tid=abc123">Submit</a>
+      </td></tr>
+      <tr><td>No Submissions</td><td>-</td><td>
+        <a href="/p/17?tid=abc123"><b>B</b>&nbsp;&nbsp;Graph</a>
+        <a href="/p/17/submit?tid=abc123">Submit</a>
+      </td></tr>
+    </tbody></table>
+    """
+    problem_16_html = encode_context(
+        {
+            "pdoc": {
+                "docId": 16,
+                "title": "Matrix",
+                "content": {"en": "Matrix statement"},
+                "config": {"timeMin": 1000, "timeMax": 1000, "memoryMin": 256, "memoryMax": 256},
+            }
+        }
+    )
+    problem_17_html = encode_context(
+        {
+            "pdoc": {
+                "docId": 17,
+                "title": "Graph",
+                "content": {"en": "Graph statement"},
+                "config": {"timeMin": 2000, "timeMax": 2000, "memoryMin": 512, "memoryMax": 512},
+            }
+        }
+    )
+    client = FakePullClient(
+        {
+            "/contest/abc123/problems": problems_html,
+            "/p/16?tid=abc123": problem_16_html,
+            "/p/17?tid=abc123": problem_17_html,
+        },
+        {},
+    )
+
+    problems = ContestService(client).pull_all("abc123", tmp_path)  # type: ignore[arg-type]
+
+    assert [problem.problem_id for problem in problems] == ["A", "B"]
+    assert client.paths == [
+        "/contest/abc123/problems",
+        "/p/16?tid=abc123",
+        "/p/17?tid=abc123",
+    ]
+    assert (tmp_path / "abc123" / "A" / "statement.md").exists()
+    assert (tmp_path / "abc123" / "B" / "statement.md").exists()

@@ -364,6 +364,26 @@ def contest_pull(
     )
 
 
+@contest_app.command("pull-all")
+def contest_pull_all(
+    cid: Annotated[str | None, typer.Argument(help="Contest id. Uses current contest when omitted.")] = None,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", "-o", help="Directory for pulled contest problems."),
+    ] = Path("contests"),
+) -> None:
+    store, client = _load_client()
+    config = store.load()
+    cid = _current_contest_id(config, cid)
+    with client:
+        pulled = ContestService(client).pull_all(cid, output_dir)
+    target = output_dir / cid
+    console.print(
+        f"Pulled contest [bold]{cid}[/bold] -> [bold]{target}[/bold] "
+        f"({len(pulled)} problem(s), {sum(len(item.attachments) for item in pulled)} attachment(s))"
+    )
+
+
 @contest_app.command("submit")
 def contest_submit(
     first: Annotated[str, typer.Argument(help="Problem alias, or contest id in legacy form.")],
