@@ -13,6 +13,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
+from . import __version__
 from .client import HydroClient, dump_cookies
 from .config import Config, ConfigStore
 from .contest import ContestDetail, ContestProblem, ContestService, ContestStanding
@@ -34,6 +35,27 @@ app.add_typer(record_app, name="record")
 app.add_typer(contest_app, name="contest")
 
 console = Console()
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(__version__)
+        raise typer.Exit()
+
+
+@app.callback()
+def root(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_version_callback,
+            help="Show the hydro-cli version and exit.",
+            is_eager=True,
+        ),
+    ] = False,
+) -> None:
+    pass
 
 
 def _store() -> ConfigStore:

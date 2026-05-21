@@ -9,7 +9,7 @@ For long-term use across new shells, install the command with `pipx`:
 ```bash
 python3 -m pip install --user pipx
 python3 -m pipx ensurepath
-pipx install -e /home/zfs732/hydrocli
+pipx install -e /path/to/hydrocli
 ```
 
 Open a new shell after `pipx ensurepath`, then verify:
@@ -18,12 +18,12 @@ Open a new shell after `pipx ensurepath`, then verify:
 hydro --help
 ```
 
-This gives you a persistent `hydro` command while still using the editable source tree at `/home/zfs732/hydrocli`.
+This gives you a persistent `hydro` command while still using the editable source tree at `/path/to/hydrocli`.
 
 If you only want to run from this repository without a persistent command, use the local virtualenv:
 
 ```bash
-cd /home/zfs732/hydrocli
+cd /path/to/hydrocli
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -e ".[dev]"
@@ -32,7 +32,7 @@ python -m pip install -e ".[dev]"
 That activation only affects the current shell. In a new shell, either activate again:
 
 ```bash
-cd /home/zfs732/hydrocli
+cd /path/to/hydrocli
 . .venv/bin/activate
 hydro --help
 ```
@@ -40,13 +40,13 @@ hydro --help
 or call the script directly:
 
 ```bash
-/home/zfs732/hydrocli/.venv/bin/hydro --help
+/path/to/hydrocli/.venv/bin/hydro --help
 ```
 
 Point the CLI at your Hydro site and log in:
 
 ```bash
-hydro config set-url http://localhost:8888
+hydro config set-url https://hydro.example.com
 hydro login <username>
 hydro whoami
 ```
@@ -63,10 +63,10 @@ If you switch to another Hydro site with `hydro config set-url`, the saved curre
 
 ## Updating
 
-If you installed with `pipx install -e /home/zfs732/hydrocli`, update the source tree and reinstall dependencies when they change:
+If you installed with `pipx install -e /path/to/hydrocli`, update the source tree and reinstall dependencies when they change:
 
 ```bash
-cd /home/zfs732/hydrocli
+cd /path/to/hydrocli
 git pull
 pipx reinstall hydro-cli
 hydro --help
@@ -76,13 +76,13 @@ If `pipx reinstall hydro-cli` cannot find the original editable source, do a cle
 
 ```bash
 pipx uninstall hydro-cli
-pipx install -e /home/zfs732/hydrocli
+pipx install -e /path/to/hydrocli
 ```
 
 For the local virtualenv workflow:
 
 ```bash
-cd /home/zfs732/hydrocli
+cd /path/to/hydrocli
 git pull
 . .venv/bin/activate
 python -m pip install -e ".[dev]"

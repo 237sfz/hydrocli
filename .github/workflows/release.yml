@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build Linux artifacts
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Build wheel and source distribution
+        run: ./scripts/build-dist.sh
+
+      - name: Build PEX
+        run: ./scripts/build-pex.sh
+
+      - name: Build standalone executable
+        run: ./scripts/build-pyinstaller.sh
+
+      - name: Build portable bundle
+        run: ./scripts/build-portable.sh
+
+      - name: Smoke test artifacts
+        run: |
+          ./dist/hydro.pex --version
+          ./dist/hydro-linux-x86_64 --version
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

@@ -20,11 +20,31 @@ python -m pip install -e ".[dev]"
 pytest
 ```
 
+## Installation And Distribution
+
+For a persistent local command:
+
+```bash
+pipx install -e .
+hydro --help
+```
+
+For releasable artifacts:
+
+```bash
+./scripts/build-dist.sh
+./scripts/build-pex.sh
+./scripts/build-portable.sh
+```
+
+See [docs/install.md](docs/install.md) for user install options and
+[docs/distribution.md](docs/distribution.md) for the local release checklist.
+
 ## Basic Usage
 
 ```bash
-hydro config set-url http://localhost:8888
-hydro login 237sfz
+hydro config set-url https://hydro.example.com
+hydro login <username>
 hydro whoami
 hydro problem show 18
 hydro problem pull 18

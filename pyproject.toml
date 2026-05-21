@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hydro-cli"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Terminal client for Hydro OJ"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,6 +23,14 @@ dev = [
 
 [project.scripts]
 hydro = "hydro_cli.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/237sfz/hydrocli"
+Repository = "https://github.com/237sfz/hydrocli"
+Issues = "https://github.com/237sfz/hydrocli/issues"
+
+[tool.hatch.version]
+path = "src/hydro_cli/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hydro_cli"]
