@@ -106,6 +106,7 @@ Pull a full local copy of a problem statement and attachments:
 
 ```bash
 hydro problem pull <pid>
+hydro problem pull <pid> --output-dir problems
 ```
 
 Pulled problems are written as:
@@ -117,6 +118,32 @@ problems/
     problem.json
     files/
 ```
+
+Pull every normal problem visible in the current Hydro problem list:
+
+```bash
+hydro problem pull-all
+hydro problem pull-all --output-dir problems
+hydro problem pull-all --start-page 1 --end-page 10
+hydro problem pull-all --skip-existing
+hydro problem pull-all --jobs 4
+```
+
+`pull-all` first enumerates problem ids from `/p?page=N`, removes duplicates, then
+uses the same output format as `hydro problem pull <pid>`. By default it refreshes
+existing bundles. With `--skip-existing`, a problem is skipped only when both
+`statement.md` and `problem.json` already exist under `problems/<pid>/`, which is
+useful for continuing an interrupted run.
+
+When you omit `--end-page`, `pull-all` uses the problem-list pager when Hydro
+shows one. If the page count is not visible, it keeps requesting pages until it
+finds an empty problem page. Single-problem failures do not stop the batch: the
+command keeps downloading the remaining problems, prints pulled, skipped, and
+failed counts plus a failure table, and exits with status `1` if any problem
+failed. Network failures, HTTP `429`, HTTP `5xx`, and Hydro's `403` rate-limit
+page are retried; normal permission-denied `403` pages still fail fast. `--jobs N`
+downloads problems concurrently; each worker creates its own Hydro client
+session, and completion order may differ from problem id order.
 
 Submit a normal, non-contest problem:
 

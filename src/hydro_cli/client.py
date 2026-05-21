@@ -56,6 +56,18 @@ def dump_cookies(client: httpx.Client) -> list[CookieRecord]:
     return records
 
 
+def _is_retryable_request_error(exc: HydroRequestError) -> bool:
+    status_code = exc.status_code
+    if status_code == 429 or (status_code is not None and 500 <= status_code < 600):
+        return True
+    return status_code == 403 and _is_rate_limit_response(exc.response_text)
+
+
+def _is_rate_limit_response(response_text: str) -> bool:
+    normalized = response_text.lower()
+    return "too frequent operations" in normalized or "rate limit" in normalized
+
+
 class HydroClient:
     def __init__(self, config: Config, timeout: float = DEFAULT_TIMEOUT) -> None:
         self.base_url = normalize_base_url(config.base_url)
@@ -84,6 +96,8 @@ class HydroClient:
             with self.client.stream("GET", url) as response:
                 self._ensure_success(response)
                 yield response
+        except HydroRequestError:
+            raise
         except httpx.HTTPError as exc:
             raise HydroRequestError(str(exc)) from exc
 
@@ -105,12 +119,19 @@ class HydroClient:
                 response = self.client.request(method, url, **request_kwargs)
                 self._ensure_success(response)
                 return response
-            except (httpx.HTTPError, HydroRequestError) as exc:
+            except HydroRequestError as exc:
+                last_exc = exc
+                if attempt == 3 or not _is_retryable_request_error(exc):
+                    break
+                time.sleep(0.4 * attempt)
+            except httpx.HTTPError as exc:
                 last_exc = exc
                 if attempt == 3:
                     break
                 time.sleep(0.4 * attempt)
-        raise HydroRequestError(str(last_exc) if last_exc else "request failed")
+        if isinstance(last_exc, HydroRequestError):
+            raise last_exc
+        raise HydroRequestError(str(last_exc) if last_exc else "request failed") from last_exc
 
     def raw_request(
         self,
@@ -130,7 +151,9 @@ class HydroClient:
             raise HydroRequestError(str(exc)) from exc
         if response.status_code >= 400:
             raise HydroRequestError(
-                f"{response.request.method} {response.url} failed: {response.status_code}"
+                f"{response.request.method} {response.url} failed: {response.status_code}",
+                status_code=response.status_code,
+                response_text=response.text,
             )
         return response
 
@@ -183,9 +206,21 @@ class HydroClient:
 
     def _ensure_success(self, response: httpx.Response) -> None:
         if response.status_code >= 400:
-            raise HydroRequestError(f"{response.request.method} {response.url} failed: {response.status_code}")
-        if "/login" in str(response.url) and 'name="uname"' in response.text:
+            raise HydroRequestError(
+                f"{response.request.method} {response.url} failed: {response.status_code}",
+                status_code=response.status_code,
+                response_text=_response_text(response),
+            )
+        if "/login" in str(response.url) and 'name="uname"' in _response_text(response):
             raise HydroAuthError("login required")
+
+
+def _response_text(response: httpx.Response) -> str:
+    try:
+        return response.text
+    except httpx.ResponseNotRead:
+        response.read()
+        return response.text
 
 
 def _find_user_context(html: str) -> dict[str, str]:

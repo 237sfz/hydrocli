@@ -48,6 +48,7 @@ hydro login <username>
 hydro whoami
 hydro problem show 18
 hydro problem pull 18
+hydro problem pull-all --skip-existing
 hydro submit P1000 main.cpp --lang cc.cc20o2 --watch
 hydro record list
 hydro record show <rid>
@@ -70,6 +71,17 @@ problems/
     problem.json
     files/
 ```
+
+Use `hydro problem pull-all` to pull every normal problem visible in the current
+Hydro problem list. It writes the same `problems/<pid>/` layout as
+`hydro problem pull <pid>`, overwrites existing bundles by default, and continues
+after per-problem failures before printing a final summary. Add
+`--skip-existing` to resume a previous run when both `statement.md` and
+`problem.json` already exist, use `--start-page` and `--end-page` to limit the
+problem-list pages, and pass `--jobs N` for concurrent downloads with a separate
+client session per worker. The batch retry logic handles network failures,
+HTTP `429`, HTTP `5xx`, and Hydro's `403` rate-limit page while leaving normal
+permission-denied `403` failures non-retryable.
 
 ## Notes
 

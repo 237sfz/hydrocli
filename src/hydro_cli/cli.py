@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 import getpass
 import time
 from pathlib import Path
@@ -11,13 +13,14 @@ from rich.console import Group
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from . import __version__
 from .client import HydroClient, dump_cookies
 from .config import Config, ConfigStore
 from .contest import ContestDetail, ContestProblem, ContestService, ContestStanding
-from .errors import HydroCliError
+from .errors import HydroCliError, HydroRequestError
 from .problem import ProblemService, render_statement
 from .record import RecordDetail, RecordService
 from .submit import SubmitService
@@ -35,6 +38,29 @@ app.add_typer(record_app, name="record")
 app.add_typer(contest_app, name="contest")
 
 console = Console()
+
+PROBLEM_PULL_ALL_MAX_ATTEMPTS = 3
+
+
+@dataclass(slots=True)
+class ProblemPullAllItem:
+    pid: str
+    status: str
+    title: str = ""
+    attachments: int = 0
+    error: str = ""
+
+
+@dataclass(slots=True)
+class ProblemPullAllSummary:
+    pulled: int = 0
+    skipped: int = 0
+    attachments: int = 0
+    failures: list[ProblemPullAllItem] = field(default_factory=list)
+
+    @property
+    def failed(self) -> int:
+        return len(self.failures)
 
 
 def _version_callback(value: bool) -> None:
@@ -191,6 +217,277 @@ def problem_pull(
         f"Pulled [bold]{problem.problem_id}[/bold] {problem.title} -> [bold]{target}[/bold] "
         f"({len(problem.attachments)} attachment(s))"
     )
+
+
+@problem_app.command("pull-all")
+def problem_pull_all(
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", "-o", help="Directory for pulled problems."),
+    ] = Path("problems"),
+    start_page: Annotated[int, typer.Option("--start-page", min=1, help="First problem list page.")] = 1,
+    end_page: Annotated[
+        int | None,
+        typer.Option("--end-page", min=1, help="Last problem list page. Defaults to the final page."),
+    ] = None,
+    skip_existing: Annotated[
+        bool,
+        typer.Option("--skip-existing", help="Skip problems that already have statement.md and problem.json."),
+    ] = False,
+    jobs: Annotated[int, typer.Option("--jobs", min=1, help="Concurrent problem downloads.")] = 1,
+) -> None:
+    store, client = _load_client()
+    config = store.load()
+    with client:
+        pids = _collect_problem_ids(client, start_page=start_page, end_page=end_page)
+
+    summary = _pull_problem_ids(
+        config,
+        pids,
+        output_dir=output_dir,
+        skip_existing=skip_existing,
+        jobs=jobs,
+    )
+    _print_problem_pull_all_summary(summary, output_dir)
+    if summary.failed:
+        raise typer.Exit(1)
+
+
+def _collect_problem_ids(
+    client: HydroClient,
+    *,
+    start_page: int,
+    end_page: int | None,
+) -> list[str]:
+    if end_page is not None and end_page < start_page:
+        raise HydroCliError("--end-page must be greater than or equal to --start-page")
+
+    service = ProblemService(client)
+    pids: list[str] = []
+    seen: set[str] = set()
+    page = start_page
+    known_last_page = end_page
+    explicit_end_page = end_page
+
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("{task.fields[page_text]}"),
+        TextColumn("found {task.fields[found]}"),
+        console=console,
+        transient=True,
+    )
+    with progress:
+        task = progress.add_task("list", total=None, page_text=f"page {page}/?", found=0)
+        while True:
+            page_total = known_last_page if known_last_page is not None else "?"
+            progress.update(task, page_text=f"page {page}/{page_total}", found=len(pids))
+            page_result = service.list_page(page=page)
+            if page_result.total_pages is not None:
+                total_pages = page_result.total_pages
+                known_last_page = (
+                    min(explicit_end_page, total_pages)
+                    if explicit_end_page is not None
+                    else total_pages
+                )
+            for item in page_result.problems:
+                pid = item["problem_id"]
+                if pid in seen:
+                    continue
+                seen.add(pid)
+                pids.append(pid)
+            page_total = known_last_page if known_last_page is not None else "?"
+            progress.update(task, page_text=f"page {page}/{page_total}", found=len(pids))
+
+            if known_last_page is not None and page >= known_last_page:
+                break
+            if explicit_end_page is not None and page >= explicit_end_page:
+                break
+            if page_result.total_pages is None and not page_result.problems:
+                break
+            page += 1
+    return pids
+
+
+def _pull_problem_ids(
+    config: Config,
+    pids: list[str],
+    *,
+    output_dir: Path,
+    skip_existing: bool,
+    jobs: int,
+) -> ProblemPullAllSummary:
+    summary = ProblemPullAllSummary()
+    if not pids:
+        return summary
+
+    worker_count = min(max(1, jobs), len(pids))
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn(
+            "pulled {task.fields[pulled]} skipped {task.fields[skipped]} "
+            "failed {task.fields[failed]} | current {task.fields[current]}"
+        ),
+        console=console,
+        transient=True,
+    )
+    with progress:
+        task = progress.add_task(
+            "download",
+            total=len(pids),
+            pulled=0,
+            skipped=0,
+            failed=0,
+            current="-",
+        )
+        if worker_count == 1:
+            with HydroClient(config) as client:
+                service = ProblemService(client)
+                for pid in pids:
+                    item = _pull_problem_with_retries(
+                        service,
+                        pid,
+                        output_dir=output_dir,
+                        skip_existing=skip_existing,
+                    )
+                    _record_problem_pull_result(summary, item)
+                    progress.update(
+                        task,
+                        advance=1,
+                        pulled=summary.pulled,
+                        skipped=summary.skipped,
+                        failed=summary.failed,
+                        current=item.pid,
+                    )
+        else:
+            with ThreadPoolExecutor(max_workers=worker_count) as pool:
+                futures = {
+                    pool.submit(
+                        _pull_problem_in_new_client,
+                        config,
+                        pid,
+                        output_dir,
+                        skip_existing,
+                    ): pid
+                    for pid in pids
+                }
+                for future in as_completed(futures):
+                    pid = futures[future]
+                    try:
+                        item = future.result()
+                    except Exception as exc:  # pragma: no cover - defensive worker boundary
+                        item = ProblemPullAllItem(pid=pid, status="failed", error=_format_exception(exc))
+                    _record_problem_pull_result(summary, item)
+                    progress.update(
+                        task,
+                        advance=1,
+                        pulled=summary.pulled,
+                        skipped=summary.skipped,
+                        failed=summary.failed,
+                        current=item.pid,
+                    )
+    return summary
+
+
+def _pull_problem_in_new_client(
+    config: Config,
+    pid: str,
+    output_dir: Path,
+    skip_existing: bool,
+) -> ProblemPullAllItem:
+    with HydroClient(config) as client:
+        return _pull_problem_with_retries(
+            ProblemService(client),
+            pid,
+            output_dir=output_dir,
+            skip_existing=skip_existing,
+        )
+
+
+def _pull_problem_with_retries(
+    service: ProblemService,
+    pid: str,
+    *,
+    output_dir: Path,
+    skip_existing: bool,
+) -> ProblemPullAllItem:
+    if skip_existing and _problem_bundle_exists(output_dir, pid):
+        return ProblemPullAllItem(pid=pid, status="skipped")
+
+    last_exc: Exception | None = None
+    for attempt in range(1, PROBLEM_PULL_ALL_MAX_ATTEMPTS + 1):
+        try:
+            problem = service.pull(pid, output_dir)
+            return ProblemPullAllItem(
+                pid=pid,
+                status="pulled",
+                title=problem.title,
+                attachments=len(problem.attachments),
+            )
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= PROBLEM_PULL_ALL_MAX_ATTEMPTS or not _is_retryable_pull_error(exc):
+                break
+            time.sleep(0.4 * attempt)
+    return ProblemPullAllItem(
+        pid=pid,
+        status="failed",
+        error=_format_exception(last_exc) if last_exc else "pull failed",
+    )
+
+
+def _problem_bundle_exists(output_dir: Path, pid: str) -> bool:
+    problem_dir = output_dir / str(pid)
+    return (problem_dir / "statement.md").is_file() and (problem_dir / "problem.json").is_file()
+
+
+def _is_retryable_pull_error(exc: Exception) -> bool:
+    if not isinstance(exc, HydroRequestError):
+        return False
+    if exc.status_code is None or exc.status_code == 429 or 500 <= exc.status_code < 600:
+        return True
+    return exc.status_code == 403 and _is_rate_limit_error_text(exc.response_text)
+
+
+def _is_rate_limit_error_text(response_text: str) -> bool:
+    normalized = response_text.lower()
+    return "too frequent operations" in normalized or "rate limit" in normalized
+
+
+def _record_problem_pull_result(
+    summary: ProblemPullAllSummary,
+    item: ProblemPullAllItem,
+) -> None:
+    if item.status == "pulled":
+        summary.pulled += 1
+        summary.attachments += item.attachments
+    elif item.status == "skipped":
+        summary.skipped += 1
+    else:
+        summary.failures.append(item)
+
+
+def _print_problem_pull_all_summary(summary: ProblemPullAllSummary, output_dir: Path) -> None:
+    console.print(
+        f"Pulled problem set -> [bold]{output_dir}[/bold] "
+        f"({summary.pulled} pulled, {summary.skipped} skipped, "
+        f"{summary.failed} failed, {summary.attachments} attachment(s))"
+    )
+    if not summary.failures:
+        return
+    table = Table("PID", "Error", title="Failures")
+    for item in summary.failures:
+        table.add_row(item.pid, item.error or "-")
+    console.print(table)
+
+
+def _format_exception(exc: Exception | None) -> str:
+    if exc is None:
+        return "unknown error"
+    message = str(exc).strip()
+    return message or exc.__class__.__name__
 
 
 @app.command()

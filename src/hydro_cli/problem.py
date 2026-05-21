@@ -5,11 +5,12 @@ import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from bs4 import BeautifulSoup
 
 from .client import HydroClient
-from .parsing import choose_markdown, extract_ui_context, format_limit, rewrite_attachment_links
+from .parsing import clean_text, choose_markdown, extract_ui_context, format_limit, rewrite_attachment_links
 from .utils import absolute_url, quote_path_part
 
 
@@ -36,6 +37,12 @@ class Problem:
     config: dict[str, Any]
     limits: dict[str, Any]
     attachments: list[Attachment]
+
+
+@dataclass(slots=True)
+class ProblemListPage:
+    problems: list[dict[str, str]]
+    total_pages: int | None
 
 
 class ProblemService:
@@ -67,22 +74,11 @@ class ProblemService:
         return page_problem
 
     def list(self, page: int = 1) -> list[dict[str, str]]:
+        return self.list_page(page=page).problems
+
+    def list_page(self, page: int = 1) -> ProblemListPage:
         html = self.client.get_text("/p", params={"page": page} if page > 1 else None)
-        soup = BeautifulSoup(html, "html.parser")
-        problems: list[dict[str, str]] = []
-        seen: set[str] = set()
-        for link in soup.select('a[href^="/p/"]'):
-            href = link.get("href") or ""
-            match = re.fullmatch(r"/p/([^/?#]+)", href)
-            if not match:
-                continue
-            pid = match.group(1)
-            title = link.get_text(" ", strip=True)
-            if not title or pid in seen:
-                continue
-            seen.add(pid)
-            problems.append({"problem_id": pid, "title": title, "url": absolute_url(self.client.base_url, href)})
-        return problems
+        return parse_problem_list_page(html, self.client.base_url)
 
     def pull(
         self,
@@ -210,6 +206,48 @@ class ProblemService:
 def problem_to_dict(problem: Problem) -> dict[str, Any]:
     data = asdict(problem)
     return data
+
+
+def parse_problem_list_page(html: str, base_url: str) -> ProblemListPage:
+    soup = BeautifulSoup(html, "html.parser")
+    return ProblemListPage(
+        problems=parse_problem_list(html, base_url),
+        total_pages=parse_problem_total_pages(soup),
+    )
+
+
+def parse_problem_list(html: str, base_url: str) -> list[dict[str, str]]:
+    soup = BeautifulSoup(html, "html.parser")
+    problems: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for link in soup.select('a[href^="/p/"]'):
+        href = str(link.get("href") or "")
+        match = re.fullmatch(r"/p/([^/?#]+)", href)
+        if not match:
+            continue
+        pid = match.group(1)
+        title = clean_text(link.get_text(" ", strip=True))
+        if not title or pid in seen:
+            continue
+        seen.add(pid)
+        problems.append({"problem_id": pid, "title": title, "url": absolute_url(base_url, href)})
+    return problems
+
+
+def parse_problem_total_pages(soup: BeautifulSoup) -> int | None:
+    total_pages: int | None = None
+    for link in soup.select('.pager a[href*="page="]'):
+        href = str(link.get("href") or "")
+        values = parse_qs(urlparse(href).query).get("page") or []
+        for value in values:
+            try:
+                page = int(value)
+            except ValueError:
+                continue
+            if page < 1:
+                continue
+            total_pages = page if total_pages is None else max(total_pages, page)
+    return total_pages
 
 
 def _problem_subtype(pdoc: dict[str, Any], config: dict[str, Any]) -> str:
