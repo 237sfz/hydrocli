@@ -265,6 +265,22 @@ Like normal submissions, contest submissions watch the returned record by defaul
 hydro contest submit A main.cpp --lang cc.cc20o2 --no-watch
 ```
 
+Inspect contest submissions through the saved current contest:
+
+```bash
+hydro contest record list
+hydro contest record show <rid>
+hydro contest record watch <rid>
+```
+
+You can pass a contest id explicitly when you do not want to change the saved current contest:
+
+```bash
+hydro contest record list <cid>
+```
+
+`show` and `watch` only need the record id because Hydro checks the contest from the record itself.
+
 ## Records and Results
 
 Inspect recent records:

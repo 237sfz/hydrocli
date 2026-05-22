@@ -22,7 +22,7 @@ from .config import Config, ConfigStore
 from .contest import ContestDetail, ContestProblem, ContestService, ContestStanding
 from .errors import HydroCliError, HydroRequestError
 from .problem import ProblemService, render_statement
-from .record import RecordDetail, RecordService
+from .record import RecordDetail, RecordService, RecordSummary
 from .submit import SubmitService
 from .utils import normalize_base_url
 
@@ -32,10 +32,12 @@ config_app = typer.Typer(help="Manage local hydro-cli configuration.")
 problem_app = typer.Typer(help="Read and pull Hydro problems.")
 record_app = typer.Typer(help="Inspect Hydro submission records.")
 contest_app = typer.Typer(help="Work with Hydro contests.")
+contest_record_app = typer.Typer(help="Inspect Hydro contest submission records.")
 app.add_typer(config_app, name="config")
 app.add_typer(problem_app, name="problem")
 app.add_typer(record_app, name="record")
 app.add_typer(contest_app, name="contest")
+contest_app.add_typer(contest_record_app, name="record")
 
 console = Console()
 
@@ -713,7 +715,7 @@ def contest_submit(
             _print_record_detail(detail)
         else:
             console.print(
-                f"Use [bold]hydro record watch {submission.record_id}[/bold] "
+                f"Use [bold]hydro contest record watch {submission.record_id}[/bold] "
                 "to wait for the result."
             )
 
@@ -741,7 +743,55 @@ def record_list(
         uid_or_name = config.uid
     with client:
         records = RecordService(client).list(page=page, uid_or_name=uid_or_name)
+    console.print(_record_list_table(records))
+
+
+@contest_record_app.command("list")
+def contest_record_list(
+    cid: Annotated[str | None, typer.Argument(help="Contest id. Uses current contest when omitted.")] = None,
+    page: Annotated[int, typer.Option("--page", "-p", min=1, help="Record list page.")] = 1,
+    uid_or_name: Annotated[str, typer.Option("--user", "-u", help="Filter by user id/name.")] = "",
+) -> None:
+    store, client = _load_client()
+    config = store.load()
+    cid = _current_contest_id(config, cid)
+    with client:
+        service = RecordService(client)
+        if uid_or_name:
+            records = service.list(page=page, uid_or_name=uid_or_name, contest_id=cid)
+        elif page > 1:
+            records = service.list(page=page, uid_or_name=str(config.uid or ""), contest_id=cid)
+        else:
+            records = service.list_contest_self(cid)
+    console.print(_record_list_table(records, title=f"Contest {cid} Records"))
+
+
+@contest_record_app.command("show")
+def contest_record_show(
+    rid: Annotated[str, typer.Argument(help="Record id")],
+) -> None:
+    _store, client = _load_client()
+    with client:
+        detail = RecordService(client).show(rid)
+    _print_record_detail(detail)
+
+
+@contest_record_app.command("watch")
+def contest_record_watch(
+    rid: Annotated[str, typer.Argument(help="Record id")],
+    interval: Annotated[float, typer.Option("--interval", min=0.5, help="Polling interval.")] = 1.5,
+    max_wait: Annotated[float, typer.Option("--max-wait", help="Maximum wait seconds.")] = 120.0,
+) -> None:
+    _store, client = _load_client()
+    with client:
+        detail = _watch_record(client, rid, interval=interval, max_wait=max_wait)
+    _print_record_detail(detail)
+
+
+def _record_list_table(records: list[RecordSummary], title: str = "") -> Table:
     table = Table("RID", "Status", "Score", "Problem", "Time", "Memory", "Language", "Submit At")
+    if title:
+        table.title = title
     for item in records:
         table.add_row(
             item.record_id,
@@ -753,7 +803,7 @@ def record_list(
             item.language,
             item.submitted_at,
         )
-    console.print(table)
+    return table
 
 
 @record_app.command("show")

@@ -19,13 +19,16 @@ hydro contest pull <alias-or-pid> [cid] [--output-dir contests]
 hydro contest pull-all [cid] [--output-dir contests]
 hydro contest submit <alias-or-pid> <file> [--lang ...] [--watch/--no-watch]
 hydro contest submit <cid> <alias-or-pid> <file> [--lang ...] [--watch/--no-watch]
+hydro contest record list [cid] [--user ...]
+hydro contest record show <rid>
+hydro contest record watch <rid> [--interval ...] [--max-wait ...]
 hydro contest standings [cid]
 ```
 
 Implemented behavior to preserve:
 
 - `hydro contest use <cid>` saves the current contest in local config as `current_contest_id`.
-- `show`, `join`, `problems`, `problem`, `pull`, `pull-all`, `submit`, and `standings` use the saved contest when `cid` is omitted.
+- `show`, `join`, `problems`, `problem`, `pull`, `pull-all`, `submit`, `record`, and `standings` use the saved contest when `cid` is omitted.
 - `hydro contest join <cid>` saves the joined contest as current after success.
 - `hydro config set-url` clears the saved current contest when the base URL changes.
 - Contest aliases such as `A`, `B`, `C` resolve through `/contest/<cid>/problems`.
@@ -33,6 +36,8 @@ Implemented behavior to preserve:
 - Contest attachment downloads use `/p/<pid>/file/<name>?type=additional_file&tid=<cid>`.
 - Contest `pull-all` pulls every visible contest problem under `contests/<cid>/`.
 - Contest submission uses the parsed or inferred path `/p/<pid>/submit?tid=<cid>`.
+- Contest self records are parsed from the `Submissions` table on `/contest/<cid>/problems`, which matches HydroOJ's in-contest self-record visibility rules.
+- Contest record detail and watch use `/record/<rid>`; HydroOJ derives contest permissions from the record itself.
 - Normal `hydro submit`, `hydro problem show`, and `hydro problem pull` behavior is unchanged.
 
 Example local verification target:
@@ -57,6 +62,9 @@ Observed on local Hydro v5.0.1:
 - Contest problem submit page: `GET /p/<pid>/submit?tid=<cid>`
 - Contest problem submit action: `POST /p/<pid>/submit?tid=<cid>` with multipart fields `lang` and `code`.
 - Contest attachment download: `GET /p/<pid>/file/<name>?type=additional_file&tid=<cid>`
+- Contest self record list: `GET /contest/<cid>/problems`, parse the `Submissions` table.
+- Contest record list for explicit `--user`: `GET /record?tid=<cid>&uidOrName=...` when Hydro's scoreboard visibility permits it.
+- Contest record detail: `GET /record/<rid>`
 - Contest scoreboard: `GET /contest/<cid>/scoreboard` when visible under the contest rule.
 
 Known local behavior:
@@ -89,6 +97,9 @@ hydro contest pull A --output-dir "$(mktemp -d)"
 hydro contest pull-all --output-dir "$(mktemp -d)"
 hydro contest submit A /tmp/solution.cpp --lang cc.cc20o2 --no-watch
 hydro contest submit <cid> A /tmp/solution.cpp --lang cc.cc20o2 --no-watch
+hydro contest record list
+hydro contest record show <rid>
+hydro contest record watch <rid> --max-wait 5
 hydro contest clear
 ```
 
@@ -102,7 +113,6 @@ hydro contest standings <cid>
 
 High priority:
 
-- Add `hydro contest record list/show/watch` shortcuts, or add a `--contest [cid]` option to existing `record` commands so users can inspect contest submissions without manually building `/record?tid=...` flows.
 - Add contest-aware `langs` command, for example `hydro contest langs A`, using `/p/<pid>/submit?tid=<cid>`.
 - Improve `standings` parsing against real visible scoreboard HTML from an ended or non-strict contest.
 
@@ -120,6 +130,7 @@ Low priority:
 
 ## Recently Completed
 
+- Added `hydro contest record list/show/watch` shortcuts; self record listing uses the contest problem page so in-contest visible submissions work under HydroOJ's `canShowSelfRecord` rules.
 - Added first-pass contest service and CLI commands.
 - Added persistent current contest support.
 - Added contest problem statement viewing.

@@ -4,12 +4,13 @@ import re
 import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from bs4 import BeautifulSoup, Tag
 
 from .client import HydroClient
 from .parsing import clean_text
-from .utils import absolute_url
+from .utils import absolute_url, quote_path_part
 
 
 TERMINAL_STATUS_HINTS = {
@@ -80,18 +81,36 @@ class RecordService:
     def __init__(self, client: HydroClient) -> None:
         self.client = client
 
-    def list(self, page: int = 1, uid_or_name: str = "") -> list[RecordSummary]:
+    def list(
+        self,
+        page: int = 1,
+        uid_or_name: str = "",
+        contest_id: str = "",
+    ) -> list[RecordSummary]:
         params: dict[str, Any] = {"page": page} if page > 1 else {}
         if uid_or_name:
             params["uidOrName"] = uid_or_name
+        if contest_id:
+            params["tid"] = contest_id
         html = self.client.get_text("/record", params=params or None)
         return parse_record_list(html, self.client.base_url)
 
-    def show(self, rid: str) -> RecordDetail:
-        html = self.client.get_text(f"/record/{rid}")
-        return parse_record_detail(html, self.client.base_url, rid)
+    def list_contest_self(self, contest_id: str) -> list[RecordSummary]:
+        path = f"/contest/{quote_path_part(contest_id)}/problems"
+        html = self.client.get_text(path)
+        return parse_record_list(html, self.client.base_url)
 
-    def watch(self, rid: str, interval: float = 1.5, max_wait: float = 120.0) -> RecordDetail:
+    def show(self, rid: str) -> RecordDetail:
+        path = _record_detail_path(rid)
+        html = self.client.get_text(path)
+        return parse_record_detail(html, self.client.base_url, rid, path=path)
+
+    def watch(
+        self,
+        rid: str,
+        interval: float = 1.5,
+        max_wait: float = 120.0,
+    ) -> RecordDetail:
         deadline = time.monotonic() + max_wait
         last = self.show(rid)
         while not last.is_done and time.monotonic() < deadline:
@@ -105,7 +124,9 @@ def parse_record_list(html: str, base_url: str) -> list[RecordSummary]:
     rows = soup.select("table.record_main__table tbody tr[data-rid]")
     records: list[RecordSummary] = []
     for row in rows:
-        rid = str(row.get("data-rid") or "")
+        record_link = row.select_one('a[href*="/record/"]')
+        href = str(record_link.get("href") or "") if record_link else ""
+        rid = str(row.get("data-rid") or "") or _record_id_from_href(href)
         cells = row.find_all("td")
         if len(cells) < 7 or not rid:
             continue
@@ -131,13 +152,13 @@ def parse_record_list(html: str, base_url: str) -> list[RecordSummary]:
                 memory=clean_text(cells[4].get_text(" ", strip=True)),
                 language=clean_text(cells[5].get_text(" ", strip=True)),
                 submitted_at=submitted_at,
-                url=absolute_url(base_url, f"/record/{rid}"),
+                url=absolute_url(base_url, href or f"/record/{quote_path_part(rid)}"),
             )
         )
     return records
 
 
-def parse_record_detail(html: str, base_url: str, rid: str) -> RecordDetail:
+def parse_record_detail(html: str, base_url: str, rid: str, path: str = "") -> RecordDetail:
     soup = BeautifulSoup(html, "html.parser")
     status_section = soup.select_one("#status")
     status_code = str(status_section.get("data-status") or "") if status_section else ""
@@ -168,8 +189,18 @@ def parse_record_detail(html: str, base_url: str, rid: str) -> RecordDetail:
         cases=_parse_cases(soup),
         compiler_text=compiler_text,
         code=code,
-        url=absolute_url(base_url, f"/record/{rid}"),
+        url=absolute_url(base_url, path or f"/record/{quote_path_part(rid)}"),
     )
+
+
+def _record_detail_path(rid: str) -> str:
+    return f"/record/{quote_path_part(rid)}"
+
+
+def _record_id_from_href(href: str) -> str:
+    path = urlparse(href).path
+    match = re.fullmatch(r"/record/([^/?#]+)", path)
+    return unquote(match.group(1)) if match else ""
 
 
 def _parse_status_cell(cell: Tag) -> tuple[str, str]:

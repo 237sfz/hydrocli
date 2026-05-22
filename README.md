@@ -60,6 +60,8 @@ hydro contest problem A
 hydro contest pull A
 hydro contest pull-all
 hydro contest submit A main.cpp --lang cc.cc20o2 --watch
+hydro contest record list
+hydro contest record show <rid>
 ```
 
 Problem pulling writes:
@@ -97,6 +99,8 @@ Contest support follows the Hydro v5 routes observed on the local instance:
 - contest problem list: `/contest/<cid>/problems`
 - contest problem detail and submit links: `/p/<pid>?tid=<cid>`, `/p/<pid>/submit?tid=<cid>`
 - contest join: `POST /contest/<cid>` with `operation=attend`, plus `code` when an invitation code is required
+- contest self records: the `Submissions` table on `/contest/<cid>/problems`
+- contest record detail: `/record/<rid>`
 - contest standings: `/contest/<cid>/scoreboard` when the contest rule makes it visible
 
-Run `hydro contest use <cid>` to save a current contest in the local config. Contest commands still accept an explicit `<cid>`, but `show`, `problems`, `standings`, and the short submit form `hydro contest submit A main.cpp` use the saved contest when it is omitted.
+Run `hydro contest use <cid>` to save a current contest in the local config. Contest commands still accept an explicit `<cid>`, but `show`, `problems`, `standings`, `record`, and the short submit form `hydro contest submit A main.cpp` use the saved contest when it is omitted.

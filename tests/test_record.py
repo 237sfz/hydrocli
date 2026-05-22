@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from hydro_cli.record import parse_record_detail, parse_record_list
+from hydro_cli.record import RecordService, parse_record_detail, parse_record_list
 
 
 def test_parse_record_list() -> None:
@@ -23,6 +23,64 @@ def test_parse_record_list() -> None:
     assert records[0].status == "Accepted"
     assert records[0].score == "100"
     assert records[0].problem_id == "P1000"
+
+
+def test_parse_record_list_keeps_plain_contest_record_href() -> None:
+    html = """
+    <table class="data-table record_main__table"><tbody>
+      <tr data-rid="abc">
+        <td><a href="/record/abc"><span>100</span> Accepted</a></td>
+        <td><a href="/p/P1000?tid=t1"><b>P1000</b>&nbsp;&nbsp;A+B Problem</a></td>
+        <td><a class="user-profile-name">alice</a></td>
+        <td>1ms</td><td>256KB</td><td>C++20(O2)</td>
+        <td><span class="time">2026-5-20</span></td>
+      </tr>
+    </tbody></table>
+    """
+
+    records = parse_record_list(html, "http://localhost:8888")
+
+    assert records[0].url == "http://localhost:8888/record/abc"
+
+
+class FakeRecordClient:
+    base_url = "http://localhost:8888"
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    def get_text(self, path: str, **kwargs: object) -> str:
+        self.calls.append((path, kwargs))
+        return """
+        <div id="status" data-status="2">
+          <h1 class="section__title"><span>100</span><span>Accepted</span></h1>
+        </div>
+        """
+
+
+def test_record_service_list_can_filter_by_contest() -> None:
+    client = FakeRecordClient()
+
+    RecordService(client).list(page=2, uid_or_name="7", contest_id="abc123")  # type: ignore[arg-type]
+
+    assert client.calls == [("/record", {"params": {"page": 2, "uidOrName": "7", "tid": "abc123"}})]
+
+
+def test_record_service_list_contest_self_uses_contest_problemlist() -> None:
+    client = FakeRecordClient()
+
+    RecordService(client).list_contest_self("abc 123")  # type: ignore[arg-type]
+
+    assert client.calls == [("/contest/abc%20123/problems", {})]
+
+
+def test_record_service_show_uses_plain_record_detail_path() -> None:
+    client = FakeRecordClient()
+
+    detail = RecordService(client).show("r/1")  # type: ignore[arg-type]
+
+    assert client.calls == [("/record/r%2F1", {})]
+    assert detail.url == "http://localhost:8888/record/r%2F1"
 
 
 def test_parse_record_detail() -> None:

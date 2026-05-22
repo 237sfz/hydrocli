@@ -12,6 +12,7 @@ from hydro_cli.config import Config, ConfigStore
 from hydro_cli.contest import ContestProblem, ContestSubmission, ContestSubmitTarget
 from hydro_cli.errors import HydroCliError
 from hydro_cli.problem import Problem
+from hydro_cli.record import RecordDetail, RecordSummary
 
 
 def test_current_contest_prefers_explicit_id() -> None:
@@ -104,6 +105,28 @@ class RecordingContestService:
         return ContestSubmission(record_id="r1", target=target)
 
 
+class RecordingRecordService:
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, ...]] = []
+
+    def list_contest_self(self, contest_id: str) -> list[RecordSummary]:
+        self.calls.append(("list_contest_self", contest_id))
+        return [_fake_record_summary()]
+
+    def list(
+        self,
+        page: int = 1,
+        uid_or_name: str = "",
+        contest_id: str = "",
+    ) -> list[RecordSummary]:
+        self.calls.append(("list", page, uid_or_name, contest_id))
+        return [_fake_record_summary()]
+
+    def show(self, rid: str) -> RecordDetail:
+        self.calls.append(("show", rid))
+        return _fake_record_detail(rid)
+
+
 def _fake_problem(problem_id: str) -> Problem:
     return Problem(
         problem_id=problem_id,
@@ -123,6 +146,36 @@ def _fake_problem(problem_id: str) -> Problem:
     )
 
 
+def _fake_record_summary() -> RecordSummary:
+    return RecordSummary(
+        record_id="r1",
+        status="Accepted",
+        score="100",
+        problem_id="16",
+        problem_title="Matrix",
+        submitter="alice",
+        time="1ms",
+        memory="256KB",
+        language="C++20(O2)",
+        submitted_at="2026-5-20",
+        url="http://localhost:8888/record/r1",
+    )
+
+
+def _fake_record_detail(rid: str) -> RecordDetail:
+    return RecordDetail(
+        record_id=rid,
+        status="Accepted",
+        status_code="1",
+        score="100",
+        info={"Problem": "16 Matrix", "Language": "C++20(O2)"},
+        cases=[],
+        compiler_text="",
+        code="",
+        url=f"http://localhost:8888/record/{rid}",
+    )
+
+
 def _install_fake_contest(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -133,6 +186,18 @@ def _install_fake_contest(
     store.save(Config(base_url="http://localhost:8888", current_contest_id="abc123"))
     monkeypatch.setattr(cli_module, "_load_client", lambda: (store, FakeClient()))
     monkeypatch.setattr(cli_module, "ContestService", lambda _client: service)
+
+
+def _install_fake_record(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    service: RecordingRecordService,
+) -> None:
+    monkeypatch.setenv("HYDRO_CLI_CONFIG_DIR", str(tmp_path / "config"))
+    store = ConfigStore()
+    store.save(Config(base_url="http://localhost:8888", current_contest_id="abc123", uid="42"))
+    monkeypatch.setattr(cli_module, "_load_client", lambda: (store, FakeClient()))
+    monkeypatch.setattr(cli_module, "RecordService", lambda _client: service)
 
 
 def test_cli_contest_problem_uses_current_contest(monkeypatch, tmp_path) -> None:
@@ -181,3 +246,59 @@ def test_cli_contest_submit_uses_current_contest(monkeypatch, tmp_path) -> None:
 
     assert result.exit_code == 0
     assert service.calls == [("submit", "abc123", "A", source, "cc.cc20o2")]
+
+
+def test_cli_contest_record_list_uses_current_contest(monkeypatch, tmp_path) -> None:
+    service = RecordingRecordService()
+    _install_fake_record(monkeypatch, tmp_path, service)
+
+    result = CliRunner().invoke(app, ["contest", "record", "list"])
+
+    assert result.exit_code == 0
+    assert service.calls == [("list_contest_self", "abc123")]
+    assert "r1" in result.stdout
+
+
+def test_cli_contest_record_list_accepts_explicit_contest(monkeypatch, tmp_path) -> None:
+    service = RecordingRecordService()
+    _install_fake_record(monkeypatch, tmp_path, service)
+
+    result = CliRunner().invoke(app, ["contest", "record", "list", "explicit", "--user", "alice"])
+
+    assert result.exit_code == 0
+    assert service.calls == [("list", 1, "alice", "explicit")]
+
+
+def test_cli_contest_record_list_page_uses_record_filter(monkeypatch, tmp_path) -> None:
+    service = RecordingRecordService()
+    _install_fake_record(monkeypatch, tmp_path, service)
+
+    result = CliRunner().invoke(app, ["contest", "record", "list", "--page", "2"])
+
+    assert result.exit_code == 0
+    assert service.calls == [("list", 2, "42", "abc123")]
+
+
+def test_cli_contest_record_show_uses_current_contest(monkeypatch, tmp_path) -> None:
+    service = RecordingRecordService()
+    _install_fake_record(monkeypatch, tmp_path, service)
+
+    result = CliRunner().invoke(app, ["contest", "record", "show", "r1"])
+
+    assert result.exit_code == 0
+    assert service.calls == [("show", "r1")]
+    assert "Accepted" in result.stdout
+
+
+def test_cli_contest_record_watch_uses_current_contest(monkeypatch, tmp_path) -> None:
+    service = RecordingRecordService()
+    _install_fake_record(monkeypatch, tmp_path, service)
+
+    result = CliRunner().invoke(
+        app,
+        ["contest", "record", "watch", "r1", "--interval", "0.5", "--max-wait", "1"],
+    )
+
+    assert result.exit_code == 0
+    assert service.calls == [("show", "r1")]
+    assert "Accepted" in result.stdout
